@@ -26,6 +26,26 @@ class FoV:
 
 
 @dataclass
+class CircularFoV:
+    d : float
+    z : float
+
+    def area(self)->float:
+        return np.pi * (self.d/2)**2
+
+    def volume(self)->float:
+        return self.area() * self.z
+
+    def __repr__(self):
+        s ="""
+        FOV; d = {0:5.1e} mm; r = {1:5.1e} mm; z = {2:5.1e} mm;
+        area = {3:5.1e} mm2 volume = {4:5.1e} mm3
+        """.format(self.d/mm, self.d/2/mm, self.z/mm, self.area()/mm2, self.volume()/mm3)
+
+        return s
+
+
+@dataclass
 class Laser:
     lamda  : float
     power  : float
@@ -46,13 +66,11 @@ class Laser:
         wavelength                ={0:5.1e} nm
         photon energy             ={1:5.1e} eV
         power                     ={2:5.1e} mW
-        energy per second         ={6:5.1e} mJ
-        photons per second        ={6:5.1e} ph/second
+        energy per second         ={3:5.1e} mJ
+        photons per second        ={4:5.1e} ph/second
         """.format(self.lamda/nm,
                    self.photon_energy()/eV,
                    self.power/milliwatt,
-                   self.f/MHz,
-                   self.tau/fs,
                    self.energy(1*second)/mJ,
                    self.n_photons() / (1/second)
                    )
@@ -82,7 +100,7 @@ class PulsedLaser(Laser):
         """.format(self.lamda/nm,
                    self.photon_energy()/eV,
                    self.power/milliwatt,
-                   self.f/MHz,
+                   self.f/MHZ,
                    self.tau/fs,
                    self.energy_per_pulse()/fJ,
                    self.energy(1*second)/mJ,
@@ -170,12 +188,12 @@ class DyeSample:
     def __repr__(self):
         s ="""
         Dye name ={0};
-        concentration = {1:5.1e} mole/l ({1:5.1e} molecules/cm3);
-        V = {2:5.1e} l,
-        nof molecules = {3:5.1e}
+        concentration = {1:5.1e} mole/l ({2:5.1e} molecules/cm3);
+        V = {3:5.1e} l,
+        nof molecules = {4:5.1e}
         """.format(self.name,
                    self.concentration/(mole/l),
-                   (self.n_molecules()/self.volume)/cm3,
+                   self.rho_molecules()/(1/cm3),
                    self.volume/l,
                    self.n_molecules())
 
