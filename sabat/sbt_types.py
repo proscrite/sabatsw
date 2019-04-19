@@ -5,6 +5,14 @@ from   typing      import TypeVar
 import numpy as np
 from   invisible_cities.core.system_of_units import *
 
+photon = 1
+molecule = 1
+GM = 1e-50 * cm2*cm2*second / (photon * molecule)
+us = photon / second
+ucm2 = photon / cm2
+ucm3 = molecule / cm3
+gp = 0.664
+
 @dataclass
 class FoV:
     x : float
@@ -44,6 +52,38 @@ class CircularFoV:
 
         return s
 
+@dataclass
+class Monolayer(FoV):
+    ns     : float
+    nb     : float
+
+    def n_molecules(self)->float:
+        return self.area() / nm**2
+
+    def snr(self)->float:
+        return self.ns /np.sqrt(2 * self.nb * self.n_molecules())
+
+    def SNR(self, repRate : float)->float:
+        return self.snr() * np.sqrt(repRate)
+
+    def nobs(self)->float:
+        s = np.random.normal(self.ns, np.sqrt(self.ns))
+        b = np.random.normal(self.nb * self.n_molecules(), np.sqrt(self.nb * self.n_molecules()))
+        return s + b
+
+    def nsignal(self)->float:
+        return self.nobs() - self.nb * self.n_molecules()
+
+    def __repr__(self):
+        s ="""
+
+        x = {0:5.1e} mum; y = {1:5.1e} mum; z = {2:5.1e} nm; area = {3:5.1e} mum2 volume = {4:5.1e} mum3
+        nof molecules = {5:5.1e}
+        snr           = {6:5.1e}
+        """.format(self.x/mum, self.y/micron, self.z/nm, self.area()/micron2, self.volume()/micron3, self.n_molecules(), self.snr())
+
+        return s
+
 
 @dataclass
 class Laser:
@@ -78,6 +118,51 @@ class Laser:
 
 
 @dataclass
+class Microscope:
+    name               : str
+    numerical_aperture : float
+    magnification      : float
+    eff_dichroic       : float = 0.85
+    eff_filter         : float = 0.8
+    NA                 : float = 1.4
+    M                  : float = 100
+    T                  : float = 0.3
+
+
+    def optical_transmission(self)->float:
+        f1 = self.numerical_aperture / self.NA
+        f2 = self.magnification / self.M
+        return self.T * (f1/f2)**2
+
+    def filter_transmission(self)->float:
+        return self.eff_dichroic * self.eff_filter
+
+    def transmission(self)->float:
+        return self.optical_transmission() * self.filter_transmission()
+
+    def __repr__(self):
+        s ="""
+        name                 = {0}
+        NA                   = {1:5.1f}
+        M                    = {2:5.1f}
+        eff dichroic         = {3:5.2f}
+        eff filter           = {4:5.2f}
+        Optical transmission = {5:5.2f}
+        Filter  transmission = {6:5.2f}
+        Total transmission   = {7:5.2f}
+        """.format(self.name,
+                   self.numerical_aperture,
+                   self.magnification,
+                   self.eff_dichroic,
+                   self.eff_filter,
+                   self.optical_transmission(),
+                   self.filter_transmission(),
+                   self.transmission())
+
+        return s
+
+
+@dataclass
 class PulsedLaser(Laser):
     f      : float
     tau    : float
@@ -96,7 +181,7 @@ class PulsedLaser(Laser):
         pulse width               ={4:5.1e} fs
         energy per pulse          ={5:5.1e} fJ
         energy per second         ={6:5.1e} mJ
-        photons per second        ={6:5.1e} ph/second
+        photons per second        ={7:5.1e} ph/second
         """.format(self.lamda/nm,
                    self.photon_energy()/eV,
                    self.power/milliwatt,
@@ -109,6 +194,42 @@ class PulsedLaser(Laser):
         return s
 
 GLaser = TypeVar('GenericLaser',  Laser, PulsedLaser)  #GenericLaser
+
+
+@dataclass
+class GaussianBeam:
+    laser  : GLaser
+    mc     : Microscope
+
+    def w0(self)-> float:
+        return self.laser.lamda/(np.pi * self.mc.numerical_aperture)
+
+    def zr(self)-> float:
+        return self.laser.lamda/(np.pi * self.mc.numerical_aperture**2)
+
+    def w(self, z : float)-> float:
+        return self.w0() * np.sqrt(self.cw(z))
+
+    def cw(self, z : float)-> float:
+            return 1 + (z / self.zr())**2
+
+    def w0wz2(self, z : float)-> float:
+            return 1 / self.cw(z)
+
+
+    def g(self, z : float, r : float)-> float:
+        wz = self.w(z)
+        return self.w0wz2(z) * np.exp(-2 * (r/wz)**2)
+
+    def __repr__(self):
+        s ="""
+        w0                   = {0:5.1f} micron
+        zr                   = {1:5.1f} micron
+        DOF                  = {2:5.1f} micron
+        """.format(self.w0()/micron,
+                   self.zr()/micron, 2 * self.zr()/micron)
+
+        return s
 
 @dataclass
 class Molecule:

@@ -47,16 +47,16 @@ def photoelectrons_per_pixel(np : float, ccd : CCD)->float:
     return np / ccd.pixels()
 
 
-def fluorescence_2p(ds: DyeSample, m: Molecule2P, lb: GLaser, n: float = 1)->float:
+def fluorescence_2p(ds: DyeSample, m: Molecule2P, lb: GLaser, mc: Microscope, n: float = 1)->float:
     """
     Returns the number of photons emitted by fluorescence through 2 photon absorption
     in the focal volume of a strongly focused illumination (e.g, diffraction limited)
     """
-    gp = 0.66
+    gp = 0.664
     t1 = 0.5 * m.Q * m.sigma2(lb.lamda) * ds.rho_molecules()
     t2 = gp /(lb.f * lb.tau)
-    t3 = (8 * n * lb.n_photons()**2)/(np.pi * lb.lamda)
-    return   t1 * t2 * t3
+    t3 = (n * np.pi * lb.n_photons()**2)/(lb.lamda)
+    return   t1 * t2 * t3 * mc.transmission()
 
 
 def absorbed_photons_per_fluorophore_per_pulse_2p(m: Molecule2P, lb: GLaser, mc : Microscope)->float:
