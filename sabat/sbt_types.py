@@ -54,33 +54,40 @@ class CircularFoV:
 
 @dataclass
 class Monolayer(FoV):
-    ns     : float
-    nb     : float
+    nf     : float
+    alpha  : float
 
+    @property
+    def nb(self)->float:
+        return self.nf/self.alpha
+    @property
     def n_molecules(self)->float:
         return self.area() / nm**2
-
+    @property
     def snr(self)->float:
-        return self.ns /np.sqrt(2 * self.nb * self.n_molecules())
-
-    def SNR(self, repRate : float)->float:
-        return self.snr() * np.sqrt(repRate)
+        return np.sqrt(self.nf * self.alpha /self.n_molecules)
 
     def nobs(self)->float:
-        s = np.random.normal(self.ns, np.sqrt(self.ns))
-        b = np.random.normal(self.nb * self.n_molecules(), np.sqrt(self.nb * self.n_molecules()))
+        s = np.random.normal(self.nf, np.sqrt(self.nf))
+        b = np.sum(np.random.normal(self.nb, np.sqrt(self.nb), int(self.n_molecules)))
         return s + b
 
     def nsignal(self)->float:
-        return self.nobs() - self.nb * self.n_molecules()
+        return self.nobs() - self.nb * self.n_molecules
 
     def __repr__(self):
         s ="""
 
         x = {0:5.1e} mum; y = {1:5.1e} mum; z = {2:5.1e} nm; area = {3:5.1e} mum2 volume = {4:5.1e} mum3
-        nof molecules = {5:5.1e}
-        snr           = {6:5.1e}
-        """.format(self.x/mum, self.y/micron, self.z/nm, self.area()/micron2, self.volume()/micron3, self.n_molecules(), self.snr())
+        n_f               = {5:5.1e}
+        n_b               = {6:5.1e}
+        alpha (snr c/u)   = {7:5.1e}
+        m (nof molecules) = {8:5.1e}
+        n_f * m / alpha   = {9:5.1e}
+        snr               = {10:5.1e}
+        """.format(self.x/mum, self.y/micron, self.z/nm, self.area()/micron2, self.volume()/micron3,
+                   self.nf, self.nb, self.alpha, self.n_molecules, self.nf * self.n_molecules/self.alpha,
+                   self.snr)
 
         return s
 
@@ -220,6 +227,10 @@ class GaussianBeam:
     def g(self, z : float, r : float)-> float:
         wz = self.w(z)
         return self.w0wz2(z) * np.exp(-2 * (r/wz)**2)
+
+    def I(self, z : float, r : float)-> float:
+        wz = self.w(z)
+        return (self.w0()/wz)**2 * self.g(z,r)
 
     def __repr__(self):
         s ="""
@@ -385,3 +396,16 @@ class CCD:
         xp = np.array([300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000])
         fp = np.array([0.1,0.2,0.55,0.8,0.92,0.98,0.98,0.92,0.9,0.8,0.7,0.55,0.4,0.2,0.1])
         return np.interp(lamda/nm, xp, fp)
+
+
+@dataclass
+class PhotonsPerSample:
+    ns_ph   :float
+    ns_det  :float
+    nb_ph   :float
+    nb_det  :float
+    def __repr__(self):
+        s ="""
+        ns_ph = {0:5.1e} ; ns_det = {1:5.1e} ; nb_ph= {2:5.1e} ; nb_det = {3:5.1e}
+        """.format(self.ns_ph, self.ns_det, self.nb_ph, self.nb_det)
+        return s

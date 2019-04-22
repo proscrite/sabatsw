@@ -6,10 +6,37 @@ from  . sbt_types import DyeSample
 from  . sbt_types import Molecule
 from  . sbt_types import Molecule2P
 from  . sbt_types import Microscope
+from  . sbt_types import Monolayer
+from  . sbt_types import PhotonsPerSample
 from  . sbt_types import CCD
 
 import numpy as np
 from  invisible_cities.core.system_of_units import *
+
+
+def signal(ml : Monolayer, n_exp : int =int(1e+2))->np.array:
+    mu_s    = ml.nf
+    sigma_s = np.sqrt(mu_s)
+    alpha   = ml.alpha
+    m       = int(ml.n_molecules)
+    mu_b = mu_s  / alpha
+    sigma_b = np.sqrt(mu_b)
+
+    N = []
+    for i in range(n_exp):
+        n_s = np.random.normal(mu_s, sigma_s)
+        n_b = np.sum(np.random.normal(mu_b, sigma_b, m))
+        nt = n_s + n_b
+        n = nt - mu_b * m
+        N.append(n /mu_s)
+    return N
+
+def photon_per_sample(n_f :float, readout_f : float, alpha : float, mc: Microscope)->PhotonsPerSample :
+    ns_ph   = n_f * readout_f
+    ns_det  = ns_ph * mc.transmission()
+    nb_ph   = ns_ph / alpha
+    nb_det  = ns_det/ alpha
+    return PhotonsPerSample(ns_ph, ns_det, nb_ph, nb_det)
 
 
 def power_density(lb : GLaser, fov : FoV)->float:
