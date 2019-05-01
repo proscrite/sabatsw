@@ -129,12 +129,12 @@ class Microscope:
     name               : str
     numerical_aperture : float
     magnification      : float
+    eff_PMT            : float = 0.3
     eff_dichroic       : float = 0.85
     eff_filter         : float = 0.8
     NA                 : float = 1.4
     M                  : float = 100
     T                  : float = 0.3
-
 
     def optical_transmission(self)->float:
         f1 = self.numerical_aperture / self.NA
@@ -145,7 +145,8 @@ class Microscope:
         return self.eff_dichroic * self.eff_filter
 
     def transmission(self)->float:
-        return self.optical_transmission() * self.filter_transmission()
+        return self.optical_transmission() * self.filter_transmission() * self.eff_PMT
+
 
     def __repr__(self):
         s ="""
@@ -154,14 +155,16 @@ class Microscope:
         M                    = {2:5.1f}
         eff dichroic         = {3:5.2f}
         eff filter           = {4:5.2f}
-        Optical transmission = {5:5.2f}
-        Filter  transmission = {6:5.2f}
-        Total transmission   = {7:5.2f}
+        eff PMT              = {5:5.2f}
+        Optical transmission = {6:5.2f}
+        Filter  transmission = {7:5.2f}
+        Total transmission   = {8:5.2f}
         """.format(self.name,
                    self.numerical_aperture,
                    self.magnification,
                    self.eff_dichroic,
                    self.eff_filter,
+                   self.eff_PMT,
                    self.optical_transmission(),
                    self.filter_transmission(),
                    self.transmission())
@@ -328,51 +331,6 @@ class DyeSample:
                    self.rho_molecules()/(1/cm3),
                    self.volume/l,
                    self.n_molecules())
-
-        return s
-
-
-@dataclass
-class Microscope:
-    name               : str
-    numerical_aperture : float
-    magnification      : float
-    eff_dichroic       : float = 0.85
-    eff_filter         : float = 0.8
-    NA                 : float = 1.4
-    M                  : float = 100
-    T                  : float = 0.3
-
-
-    def optical_transmission(self)->float:
-        f1 = self.numerical_aperture / self.NA
-        f2 = self.magnification / self.M
-        return self.T * (f1/f2)**2
-
-    def filter_transmission(self)->float:
-        return self.eff_dichroic * self.eff_filter
-
-    def transmission(self)->float:
-        return self.optical_transmission() * self.filter_transmission()
-
-    def __repr__(self):
-        s ="""
-        name                 = {0}
-        NA                   = {1:5.1f}
-        M                    = {2:5.1f}
-        eff dichroic         = {3:5.2f}
-        eff filter           = {4:5.2f}
-        Optical transmission = {5:5.2f}
-        Filter  transmission = {6:5.2f}
-        Total transmission   = {7:5.2f}
-        """.format(self.name,
-                   self.numerical_aperture,
-                   self.magnification,
-                   self.eff_dichroic,
-                   self.eff_filter,
-                   self.optical_transmission(),
-                   self.filter_transmission(),
-                   self.transmission())
 
         return s
 
