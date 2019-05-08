@@ -21,6 +21,7 @@ from  invisible_cities.core.system_of_units import *
 import matplotlib.pyplot as plt
 
 GM = 1e-50 * cm2*cm2*second
+GM3 = 1e-82 * cm**6*second**2
 
 
 class XMOL:
@@ -67,6 +68,8 @@ class FIB(XMOL):
         self.Q     = 0.9
         XMOL.__init__(self, path, tpa_file, fibc_file, fibu_file)
 
+    def sigma3(self, lamda : float)->float:
+        return GM3
 
 class FLUO3(XMOL):
     def __init__(self):
@@ -98,7 +101,8 @@ class Setup:
                         mc_eff_PMT             = 0.1,
                         n_pixels               = 256,
                         scan_length            = 90 * mum,
-                        v_per_line             = 40):
+                        v_per_line             = 40,
+                        f_mirror               = 0.3):
 
         if molecule_name == 'Fluorescein' or molecule_name == 'FLUO3':
 
@@ -130,7 +134,7 @@ class Setup:
         print(f'pixel size = {self.pixel_size_mu_a/mum:5.1e} mum')
 
         self.t_line = (1/v_per_line) * second
-        self.t_pixel = self.t_line/n_pixels
+        self.t_pixel = self.t_line/n_pixels * f_mirror
         print(f'time per pixel ={self.t_pixel/mus} (mus)')
 
         fov= CircularFoV(d = 2* self.gb.w0(), z= 2 * self.gb.zr())
@@ -141,23 +145,29 @@ class Setup:
         print(self.ds)
 
 
-    def fluorescence(self)->float:
-        F = fluorescence_2p_dl(self.ds, self.fl2, self.lb, self.mc)
+    def fluorescence(self, n_photons=2)->float:
+        if n_photons == 2:
+            F = fluorescence_2p_dl(self.ds, self.fl2, self.lb, self.mc)
+        elif n_photons == 3:
+            F = fluorescence_3p_dl(self.ds, self.fl2, self.lb, self.mc)
+        else:
+            print(f'not implemented')
+            F = 0
         return F
 
 
-    def photons_per_pixel(self)->float:
-        F2 = self.fluorescence()/us
+    def photons_per_pixel(self, n_photons)->float:
+        F2 = self.fluorescence(n_photons)/us
         F_pixel = F2 * (self.t_pixel/mus) * 1e-6
         return F_pixel
 
-    def photons_per_pixel_per_molecule(self)->float:
-        F2 = self.fluorescence()/us
+    def photons_per_pixel_per_molecule(self, n_photons)->float:
+        F2 = self.fluorescence(n_photons)/us
         F_pixel = F2 * (self.t_pixel/mus) * 1e-6
-        return self.photons_per_pixel() / self.ds.n_molecules()
+        return self.photons_per_pixel(n_photons) / self.ds.n_molecules()
 
-    def detected_photons_per_pixel(self)->float:
-        n_f = self.photons_per_pixel() * self.mc.transmission()
+    def detected_photons_per_pixel(self, n_photons)->float:
+        n_f = self.photons_per_pixel(n_photons) * self.mc.transmission()
         return n_f
 
 
@@ -177,6 +187,7 @@ def signal(ml : Monolayer, n_exp : int =int(1e+2))->np.array:
         n = nt - mu_b * m
         N.append(n /mu_s)
     return N
+
 
 def photon_per_sample(n_f :float, readout_f : float, alpha : float, mc: Microscope)->PhotonsPerSample :
     ns_ph   = n_f * readout_f

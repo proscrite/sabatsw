@@ -17,6 +17,8 @@ from pandas import DataFrame, Series
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import imshow
 
+import invisible_cities.core .fit_functions  as     fitf
+
 ## File manipulation
 
 def get_jpeg_dirs(ipath :str)->List:
@@ -68,6 +70,25 @@ def get_files(ipath :str, ftype : str = 'TOM')->List:
         DIR[k] = FLS[i]
     return DIR
 
+
+def get_TOM_files(ipath :str):
+    """Organizes the TOM files in a dictionary"""
+    FLS = glob.glob(ipath+"/*.xls", recursive=True)
+    isplit = -1
+
+    KEYS = []
+    for t in FLS:
+        names = t.split('/')[isplit]
+        keys  = names.split('_')
+        lbl = keys[0]
+        for i in range(1,5):
+            lbl += '_' + keys[i]
+        lbl +=keys[-1].split('.')[0]
+        KEYS.append(lbl)
+    DIR = {}
+    for i, k in enumerate(KEYS):
+        DIR[k] = FLS[i]
+    return DIR
 
 def read_xls_files(filename :str)->DataFrame:
     """The xls files produced by Espinardo  setup are not really xls
@@ -142,6 +163,24 @@ def expo_seed(x, y, eps=1e-12):
     seed  = const, slope
     return seed
 
+
+def fit_intensity(DF, sigma, imax=200, figsize=(10,10)):
+    I = avg_intensity(DF)
+    X = np.arange(len(I))
+    seed = expo_seed(X, I)
+    f    = fitf.fit(fitf.expo, X, I, seed, sigma= sigma * np.ones(len(I)))
+
+    fig = plt.figure(figsize=figsize)
+    plt.errorbar(X,I, fmt="kp", yerr= sigma  * np.ones(len(I)), ms=7, ls='none')
+    plt.plot(X, f.fn(X), lw=3)
+    plt.ylim(0,imax)
+    plt.xlabel('shot number')
+    plt.ylabel('I (a.u.)')
+    plt.show()
+    print(f'Fit function -->{f}')
+    return f.values, f.errors
+
+
 # plots
 
 def get_profile(df):
@@ -196,6 +235,54 @@ def display_profiles_before_after(dfb, dfa,
 
     plt.tight_layout()
     plt.show()
+
+def display_profiles(DFS, zrange=(0,200), yrange=(0,200), nx = 2, ny =2, figsize=(12,6)):
+    fig = plt.figure(figsize=figsize)
+    for i, df in enumerate(DFS):
+        Z,ZV = get_profile(df)
+        ax      = fig.add_subplot(nx, ny, i+1)
+        plt.plot(ZV)
+        plt.xticks(np.arange(min(Z), max(Z)+1, 10.))
+        plt.xlim(*zrange)
+        plt.ylim(*yrange)
+        plt.xlabel('Z (X) pixels')
+        plt.ylabel('I (a.u.)')
+    plt.tight_layout()
+    plt.show()
+    fig = plt.figure(figsize=figsize)
+    for i, df in enumerate(DFS):
+        Z,ZV = get_profile(df.T)
+        ax      = fig.add_subplot(nx, ny, i+1)
+        plt.plot(ZV)
+        plt.xticks(np.arange(min(Z), max(Z)+1, 10.))
+        plt.xlim(*zrange)
+        plt.ylim(*yrange)
+        plt.xlabel('X (X) pixels')
+        plt.ylabel('I (a.u.)')
+    plt.tight_layout()
+    plt.show()
+
+def show_toms(TOMS, nx = 2, ny =2, figsize=(18,12)):
+
+    fig = plt.figure(figsize=figsize)
+    for i, tom in enumerate(TOMS):
+        ax      = fig.add_subplot(nx, ny, i+1)
+        plt.imshow(tom.values.T)
+
+        plt.xlabel('X scan')
+        plt.ylabel('Z scan')
+    plt.tight_layout()
+    plt.show()
+
+def mean_and_std_toms(TOMS):
+    return [tom.mean().mean() for tom in TOMS], [tom.mean().std() for tom in TOMS]
+
+def tom_I(TOMS):
+    return [tom.mean().sum() for tom in TOMS]
+
+
+def tom_mean_I(TOMS):
+    return [tom.mean().mean() for tom in TOMS]
 
 
 def plot_LIVE_images(IMG, nx=6, ny=5, figsize=(18,12)):
