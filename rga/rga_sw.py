@@ -147,3 +147,53 @@ def find_excess_peaks(df : pd.DataFrame, i_cycle : int, f_cycle : int,
     plt.legend(loc='upper right', fontsize=14)
 
     plt.show()
+
+
+def load_mid_data(filename : str) -> pd.DataFrame:
+    """Load data from filename_MID_.asc into DataFrame df_mid with MultiIndex:
+        Level 0 are the ion_masses as they appear in the file line 7
+        Level 1 are the (timestamp, relative time and ion_current [A]) for each ion"""
+
+    head = pd.read_csv(filename, sep='\s+', skiprows=5, nrows=1)
+    names = head.columns.values
+
+    ##### Establish the column names (timestamp, relative_time and ion_current) as index in level 1
+    index2 = np.array(['time', 'rel_time', 'ion_current'])
+
+    #####  Declare a MultiIndex object from the euclidean product ion_masses $\times$ properties
+    mi = pd.MultiIndex.from_product([names, index2], names=['mass', 'properties'])
+
+    ##### Read the actual data skipping headers and set the MultiIndex to its columns
+    df_mid = pd.read_csv(filename, sep='\t', skiprows=8, decimal=',')
+    df_mid.columns = mi
+
+    return df_mid
+
+def plot_MID(df_mid : pd.DataFrame, masses : list, xlims : tuple):
+    """Plot Multi Ion Data from RGA df_mid (rel_time vs ion_current)
+    Parameters
+    ---------------
+    df_mid : pd.DataFrame
+        MID-type RGA data
+    masses: list
+        ion masses to plot as they appear in df_mid
+    xlims: tuple
+        limits on x axis (in seconds)
+
+    Hint: to access all the names of the ions from df_ion use 
+        df.columns.get_level_values(level=0).drop_duplicates()
+    """
+
+    plt.figure(figsize=(10,8))
+    for m in masses:
+        x = df_mid[m].rel_time
+        y = df_mid[m].ion_current
+
+        plt.plot(x, y, '-', label='Mass peak: '+m)
+
+    if xlims != None:
+        plt.xlim(xlims)
+    plt.xlabel('Relative time [s]')
+    plt.ylabel('Ion current [A]')
+    plt.yscale('log')
+    plt.legend()
