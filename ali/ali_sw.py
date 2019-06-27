@@ -7,6 +7,7 @@ import os
 import peakutils
 import datetime
 import warnings
+from mpl_toolkits.mplot3d import Axes3D
 
 def load_raw_ali_df ( filename ) :
     """load a df, if filename correctly found, and transform Date/Time from string to Timestamp type"""
@@ -172,3 +173,74 @@ def plot_leak_distributions(delta_m : np.array,
     ax[1].legend(loc='best', fontsize=14)
 
     return([avg_m, sd_m, avg_t, sd_t])
+
+def overlay_peaks(df: pd.DataFrame, peaks: np.array, troughs: np.array,
+                  npulses : int, xrange : int = 900, scale: str = 's'):
+    """Shift and overlap pulses to check reproducibility.
+    Params
+    ----------
+    npulses : int
+        Number of pulses to show
+    xrange: int
+        pulse duration in entries. Default 900 = 9 s
+    scale: str
+        time scale, accepts: 'ms' and (default) 's'
+    """
+    if scale == 'ms':
+        sc = 1
+    else:
+        sc = 100
+    plt.figure(figsize=(10,8))
+
+    for i in range(npulses):
+        y = df.p_chamber[troughs[i]:peaks[i]+xrange]/sc
+        x = df.index[troughs[i]:peaks[i]+xrange]/sc - df.index[troughs[i]]/sc
+
+        plt.plot(x, y, '-', label='peak '+str(i));
+
+        plt.xlabel('Time ['+scale+']', fontsize=14)
+        plt.yscale('log')
+        plt.ylabel('Chamber pressure [mbar]', fontsize=14)
+        plt.legend(loc='right',fontsize=14)
+
+def plot3d_pulses(df : pd.DataFrame, peaks: np.array, troughs: np.array,
+                  npulses: int,
+                  xrange: int = 400, scale: str = 's'):
+    """Shift and 3d-plot npulses"""
+
+    if scale == 'ms':
+        sc = 1
+    else:
+        sc = 100
+
+    fig = plt.figure(figsize=(10,8))
+    ax = plt.axes(projection='3d')
+
+    for i in range(npulses-1,-1,-1):
+        y = df.p_chamber[troughs[i]:peaks[i]+xrange]/sc
+        x = df.index[troughs[i]:peaks[i]+xrange]/sc - df.index[troughs[i]]/sc
+
+        ax.plot(x, y, zs=i, zdir='y', label='peak '+str(i));
+
+        ax.set_xlabel('\nTime ['+scale+']')#, linespacing=3)
+        ax.set_zscale('log')
+        ax.set_zlabel('\nChamber pressure [mbar]')
+        ax.set_ylabel('\nPeak nr')
+
+    #     ax.legend(loc='right',fontsize=14)
+    ax.view_init(elev=25., azim=-65)
+    plt.show()
+
+def zoom_peak(peak_id : int,
+             df : pd.DataFrame,
+             peaks : np.array, troughs : np.array,
+             xrange : int = 900):
+    """Use plot_pressure_curve focused on a specific peak index (peak_id)
+    and specify time range (default 900 s)"""
+    plot_pressure_curve(df[troughs[peak_id]:peaks[peak_id]+xrange], tit='Peak '+str(peak_id), scale='s', flag_p=False)
+    plt.plot(troughs[peak_id]/100, df.p_chamber[troughs[peak_id]], 'o', markersize=10)
+    plt.plot(peaks[peak_id]/100, df.p_chamber[peaks[peak_id]], 'o', markersize=10)
+
+    x=df.index[troughs[peak_id] : peaks[peak_id]]/100
+    plt.fill_between(x, df.p_chamber[troughs[peak_id]], df.p_chamber[troughs[peak_id]:peaks[peak_id]],  color='0.9')#, label='q$_L$ = %.2f mbar•L/s'%q[peak_id])
+    
