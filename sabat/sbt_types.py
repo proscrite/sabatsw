@@ -132,33 +132,33 @@ class Microscope:
     eff_PMT            : float = 0.3
     eff_dichroic       : float = 0.85
     eff_filter         : float = 0.8
-    NA                 : float = 1.4
-    M                  : float = 100
-    T                  : float = 0.3
 
     def optical_transmission(self)->float:
-        f1 = self.numerical_aperture / self.NA
-        f2 = self.magnification / self.M
-        return self.T * (f1/f2)**2
+        A = self.numerical_aperture
+        if A >= 1:
+            return 0.5
+        else :
+            return A / (2 * np.pi * np.sqrt(1 - A**2))
 
     def filter_transmission(self)->float:
         return self.eff_dichroic * self.eff_filter
 
     def transmission(self)->float:
-        return self.optical_transmission() * self.filter_transmission() * self.eff_PMT
+        return (self.optical_transmission() *
+        self.filter_transmission() **2 * self.eff_PMT)
 
 
     def __repr__(self):
         s ="""
         name                 = {0}
-        NA                   = {1:5.1f}
-        M                    = {2:5.1f}
-        eff dichroic         = {3:5.2f}
-        eff filter           = {4:5.2f}
-        eff PMT              = {5:5.2f}
-        Optical transmission = {6:5.2f}
-        Filter  transmission = {7:5.2f}
-        Total transmission   = {8:5.2f}
+        NA                   = {1:5.1e}
+        M                    = {2:5.1e}
+        eff dichroic         = {3:5.2e}
+        eff filter           = {4:5.2e}
+        eff PMT              = {5:5.2e}
+        Optical transmission = {6:5.2e}
+        Filter  transmission = {7:5.2e}
+        Total transmission   = {8:5.2e}
         """.format(self.name,
                    self.numerical_aperture,
                    self.magnification,

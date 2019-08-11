@@ -274,16 +274,17 @@ def show_toms(TOMS, nx = 2, ny =2, figsize=(18,12)):
     plt.tight_layout()
     plt.show()
 
+def tom_I_max(TOMS):
+    return [tom.mean().max() for tom in TOMS]
+
 def mean_and_std_toms(TOMS):
-    return [tom.mean().mean() for tom in TOMS], [tom.mean().std() for tom in TOMS]
+    return [tom.mean().mean() for tom in TOMS],[tom.T.mean().std() for tom in TOMS]
 
 def tom_I(TOMS):
     return [tom.mean().sum() for tom in TOMS]
 
-
 def tom_mean_I(TOMS):
     return [tom.mean().mean() for tom in TOMS]
-
 
 def plot_LIVE_images(IMG, nx=6, ny=5, figsize=(18,12)):
     fig = plt.figure(figsize=figsize)
