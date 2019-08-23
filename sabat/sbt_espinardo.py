@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 from matplotlib.pyplot import imshow
 
 import invisible_cities.core .fit_functions  as     fitf
+from collections import Counter
+import collections
 
 ## File manipulation
 
@@ -71,24 +73,67 @@ def get_files(ipath :str, ftype : str = 'TOM')->List:
     return DIR
 
 
-def get_TOM_files(ipath :str):
+def get_TOM_files(ipath, ext='xlsx', rec=False, isplit=-1):
     """Organizes the TOM files in a dictionary"""
-    FLS = glob.glob(ipath+"/*.xls", recursive=True)
-    isplit = -1
 
+    def get_names(file, isplit):
+        return file.split('/')[isplit].split('.')[0][0:-1]
+
+
+    FLS = glob.glob(ipath+f"/*.{ext}", recursive=rec)
     KEYS = []
-    for t in FLS:
-        names = t.split('/')[isplit]
-        keys  = names.split('_')
-        lbl = keys[0]
-        for i in range(1,5):
-            lbl += '_' + keys[i]
-        lbl +=keys[-1].split('.')[0]
-        KEYS.append(lbl)
-    DIR = {}
-    for i, k in enumerate(KEYS):
-        DIR[k] = FLS[i]
-    return DIR
+    FILES = []
+    for file in FLS:
+        names = get_names(file, isplit)
+        KEYS.append(names)
+        FILES.append(file)
+
+    TOM={}
+    for i, name in enumerate(KEYS):
+        TOM[name] = FILES[i]
+    return TOM
+
+def select_TOM(TOM, key='A2'):
+    TSL={}
+    for name, value in TOM.items():
+        words = name.split('_')
+        if key in words:
+            TSL[name] = value
+    return TSL
+
+
+def select_set_TOM(TOM, sample='A2', energy='100mW'):
+    SD = select_TOM(TOM, key=sample)
+    SE = select_TOM(SD, key=energy)
+    return collections.OrderedDict(sorted(SE.items()))
+
+
+def select_df_TOM(TOM, sample='A2', energy='100mW', filter='Alta450nm'):
+    sst = select_set_TOM(TOM, sample, energy)
+    SE = select_TOM(sst, key=filter)
+    file = list(SE.values())[0]
+    tom = pd.read_excel(file, header=None)
+    return tom
+
+
+# def get_TOM_files(ipath :str):
+#     """Organizes the TOM files in a dictionary"""
+#     FLS = glob.glob(ipath+"/*.xls", recursive=True)
+#     isplit = -1
+#
+#     KEYS = []
+#     for t in FLS:
+#         names = t.split('/')[isplit]
+#         keys  = names.split('_')
+#         lbl = keys[0]
+#         for i in range(1,5):
+#             lbl += '_' + keys[i]
+#         lbl +=keys[-1].split('.')[0]
+#         KEYS.append(lbl)
+#     DIR = {}
+#     for i, k in enumerate(KEYS):
+#         DIR[k] = FLS[i]
+#     return DIR
 
 def read_xls_files(filename :str)->DataFrame:
     """The xls files produced by Espinardo  setup are not really xls
@@ -181,98 +226,6 @@ def fit_intensity(DF, sigma, imax=200, figsize=(10,10)):
     return f.values, f.errors
 
 
-# plots
-
-def get_profile(df):
-    """Gets the profile in Z of the sample"""
-    prf  = df.mean()
-    indx = df.mean().index.values[1:-1].astype(str)
-    Z    = np.char.replace(indx, ',', '.') .astype(float).astype(int)
-    ZV   = prf.values[1:-1]
-    return Z, ZV
-
-def display_profile(df, zrange=(0,200), yrange=(0,200), figsize=(12,6)):
-    Z,ZV = get_profile(df)
-    fig = plt.figure(figsize=figsize)
-    ax      = fig.add_subplot(1, 1, 1)
-    plt.plot(ZV)
-    plt.xticks(np.arange(min(Z), max(Z)+1, 10.))
-    plt.xlim(*zrange)
-    plt.ylim(*yrange)
-    plt.xlabel('Z (X) pixels')
-    plt.ylabel('I (a.u.)')
-    plt.tight_layout()
-    plt.show()
-
-
-def display_profiles_before_after(dfb, dfa,
-                                  zrange=(0,200), yrange=(0,200),
-                                  ztrange=(0,200), ytrange=(0,200),
-                                  figsize=(12,6)):
-
-    fig = plt.figure(figsize=figsize)
-    ax      = fig.add_subplot(1, 2, 1)
-    Z, Zb = get_profile(dfb)
-    Z, Za = get_profile(dfa)
-    plt.plot(Zb)
-    plt.plot(Za)
-    plt.xlim(*zrange)
-    plt.ylim(*yrange)
-    plt.xticks(np.arange(min(Z), max(Z)+1, 10.))
-    plt.xlabel('Z (X) pixels')
-    plt.ylabel('I (a.u.)')
-
-    ax      = fig.add_subplot(1, 2, 2)
-    Z,Zb = get_profile(dfb.T)
-    Z,Za = get_profile(dfa.T)
-    plt.plot(Zb)
-    plt.plot(Za)
-    plt.xlim(*ztrange)
-    plt.ylim(*ytrange)
-    plt.xticks(np.arange(min(Z), max(Z)+1, 10.))
-    plt.xlabel('Z (X) pixels')
-    plt.ylabel('I (a.u.)')
-
-    plt.tight_layout()
-    plt.show()
-
-def display_profiles(DFS, zrange=(0,200), yrange=(0,200), nx = 2, ny =2, figsize=(12,6)):
-    fig = plt.figure(figsize=figsize)
-    for i, df in enumerate(DFS):
-        Z,ZV = get_profile(df)
-        ax      = fig.add_subplot(nx, ny, i+1)
-        plt.plot(ZV)
-        plt.xticks(np.arange(min(Z), max(Z)+1, 10.))
-        plt.xlim(*zrange)
-        plt.ylim(*yrange)
-        plt.xlabel('Z (X) pixels')
-        plt.ylabel('I (a.u.)')
-    plt.tight_layout()
-    plt.show()
-    fig = plt.figure(figsize=figsize)
-    for i, df in enumerate(DFS):
-        Z,ZV = get_profile(df.T)
-        ax      = fig.add_subplot(nx, ny, i+1)
-        plt.plot(ZV)
-        plt.xticks(np.arange(min(Z), max(Z)+1, 10.))
-        plt.xlim(*zrange)
-        plt.ylim(*yrange)
-        plt.xlabel('X (X) pixels')
-        plt.ylabel('I (a.u.)')
-    plt.tight_layout()
-    plt.show()
-
-def show_toms(TOMS, nx = 2, ny =2, figsize=(18,12)):
-
-    fig = plt.figure(figsize=figsize)
-    for i, tom in enumerate(TOMS):
-        ax      = fig.add_subplot(nx, ny, i+1)
-        plt.imshow(tom.values.T)
-
-        plt.xlabel('X scan')
-        plt.ylabel('Z scan')
-    plt.tight_layout()
-    plt.show()
 
 def tom_I_max(TOMS):
     return [tom.mean().max() for tom in TOMS]
@@ -286,56 +239,9 @@ def tom_I(TOMS):
 def tom_mean_I(TOMS):
     return [tom.mean().mean() for tom in TOMS]
 
-def plot_LIVE_images(IMG, nx=6, ny=5, figsize=(18,12)):
-    fig = plt.figure(figsize=figsize)
-    for i, img in enumerate(IMG):
-        ax      = fig.add_subplot(nx, ny, i+1)
-        imshow(img,cmap=plt.cm.hot)
-    plt.show()
 
 
-def plot_LIVE_avg(DF, xpixel =(0, 255), ypixel = (0,255), imax = 200, nx=6, ny=5, figsize=(18,12)):
-    xmin = xpixel[0]
-    xmax = xpixel[1]
-    ymin = ypixel[0]
-    ymax = ypixel[1]
-    def plot_df(DF, axis='X'):
-        fig = plt.figure(figsize=figsize)
-        for i, img in enumerate(DF):
-            ax      = fig.add_subplot(nx, ny, i+1)
-            if axis == 'X' :
-                plt.plot(DF[i].mean()[xmin:xmax])
-            else:
-                plt.plot(DF[i].T.mean()[ymin:ymax])
-            plt.xlabel(axis + ' (pixel)')
-            plt.ylabel('I (a.u.)')
-            plt.ylim(0,imax)
-        plt.show()
-    plot_df(DF, axis='X')
-    plot_df(DF, axis='Y')
 
-
-def plot_avg_intensity(DF, imax = 200, err=None, figsize=(12,12)):
-    I = avg_intensity(DF)
-    X = np.arange(len(I))
-    fig = plt.figure(figsize=figsize)
-    if err == None:
-        err = np.sqrt(I)
-    plt.errorbar(X,I, yerr=err, fmt="kp", ms=7, ls='none')
-    plt.ylim(0,imax)
-    plt.xlabel('shot number')
-    plt.ylabel('I (a.u.)')
-    plt.show()
-
-def plot_total_intensity(DF, imax = 1e+7, figsize=(12,12)):
-    I = total_intensity(DF)
-    X = np.arange(len(I))
-    fig = plt.figure(figsize=figsize)
-    plt.errorbar(X,I, yerr=np.sqrt(I), fmt="kp", ms=7, ls='none')
-    plt.ylim(0,imax)
-    plt.xlabel('shot number')
-    plt.ylabel('I (a.u.)')
-    plt.show()
 
 def avg_intensity(DF):
     return [df.T.mean().mean() for df in DF]
@@ -343,12 +249,3 @@ def avg_intensity(DF):
 
 def total_intensity(DF):
     return [df.sum().sum() for df in DF]
-
-
-def plot_TOM(tom, figsize=(18,12)):
-    fig = plt.figure(figsize=figsize)
-    ax      = fig.add_subplot(1, 1, 1)
-    plt.imshow(tom.values.T)
-    plt.xlabel('X scan')
-    plt.ylabel('Z scan')
-    plt.show()
