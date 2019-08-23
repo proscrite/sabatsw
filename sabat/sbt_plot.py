@@ -1,24 +1,11 @@
-from  . sbt_types import FoV
-from  . sbt_types import Laser
-from  . sbt_types import PulsedLaser
-from  . sbt_types import GaussianBeam
-from  . sbt_types import CircularFoV
-from  . sbt_types import GLaser
-from  . sbt_types import DyeSample
-from  . sbt_types import Molecule
-from  . sbt_types import Molecule2P
-from  . sbt_types import Microscope
-from  . sbt_types import Monolayer
-from  . sbt_types import PhotonsPerSample
-from  . sbt_types import CCD
-from  .sbt_types import  photon, molecule, GM, us, ucm2, ucm3, gp
-
 import numpy as np
 import pandas as pd
 import os, sys
 
 from  invisible_cities.core.system_of_units import *
 import matplotlib.pyplot as plt
+
+from pandas import DataFrame, Series
 
 def get_profile(df, xlsx=True):
     """Gets the profile in Z of the sample"""
@@ -162,6 +149,21 @@ def display_profiles(DFS, zrange=(0,200), yrange=(0,200), nx = 2, ny =2,
     plt.show()
 
 
+def load_LIVE_images(files : str)->DataFrame:
+    """Load jpg LIVE images and translates them into DFs"""
+
+    #IMG =[]
+    DF = []
+    SHOT  = get_shot(files)
+    print(f'Loading files corresponding to shots {SHOT}')
+    for f in files:
+        im = Image.open(f)
+        npi = np.asarray(im)
+        df = pd.DataFrame(npi, index=range(npi.shape[0]))
+        #IMG.append(npi)
+        DF.append(df)
+    return DF
+
 def show_toms(TOMS, nx = 2, ny =2, figsize=(18,12)):
 
     fig = plt.figure(figsize=figsize)
@@ -207,6 +209,7 @@ def plot_avg_intensity(DF, imax = 200, err=None, figsize=(12,12)):
     plt.xlabel('shot number')
     plt.ylabel('I (a.u.)')
     plt.show()
+
 
 def plot_total_intensity(DF, imax = 1e+7, figsize=(12,12)):
     I = total_intensity(DF)
