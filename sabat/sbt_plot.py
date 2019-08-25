@@ -149,20 +149,13 @@ def display_profiles(DFS, zrange=(0,200), yrange=(0,200), nx = 2, ny =2,
     plt.show()
 
 
-def load_LIVE_images(files : str)->DataFrame:
-    """Load jpg LIVE images and translates them into DFs"""
+def plot_LIVE_images(IMG, nx=6, ny=5, figsize=(18,12)):
+    fig = plt.figure(figsize=figsize)
+    for i, img in enumerate(IMG):
+        ax      = fig.add_subplot(nx, ny, i+1)
+        imshow(img,cmap=plt.cm.hot)
+    plt.show()
 
-    #IMG =[]
-    DF = []
-    SHOT  = get_shot(files)
-    print(f'Loading files corresponding to shots {SHOT}')
-    for f in files:
-        im = Image.open(f)
-        npi = np.asarray(im)
-        df = pd.DataFrame(npi, index=range(npi.shape[0]))
-        #IMG.append(npi)
-        DF.append(df)
-    return DF
 
 def show_toms(TOMS, nx = 2, ny =2, figsize=(18,12)):
 
@@ -219,4 +212,68 @@ def plot_total_intensity(DF, imax = 1e+7, figsize=(12,12)):
     plt.ylim(0,imax)
     plt.xlabel('shot number')
     plt.ylabel('I (a.u.)')
+    plt.show()
+
+
+def plot_spectrum(df, title='I vs W', log=False, figsize=(18,12), fontsize=20):
+
+    fig = plt.figure(figsize=figsize)
+    ax  = fig.add_subplot(1, 1, 1)
+    set_fonts(ax, fontsize=fontsize)
+
+    if log:
+        ax.set_yscale('log')
+
+    plt.plot(df['W'],df['I'], linewidth=3)
+    plt.xlabel('Lambda (nm)')
+    plt.ylabel('I (a.u.)')
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_spectra(dfs,
+                 title='', xlim=(300,750),
+                 log=False, figsize=(18,12), fontsize=20):
+
+    fig = plt.figure(figsize=figsize)
+    ax  = fig.add_subplot(1, 1, 1)
+    set_fonts(ax, fontsize=fontsize)
+    if log:
+        ax.set_yscale('log')
+
+    for df in dfs:
+        plt.xlim(*xlim)
+        plt.plot(df['W'],df['I'], linewidth=3)
+    plt.xlabel('Lambda (nm)')
+    plt.ylabel('I (a.u.)')
+    plt.title(title)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_fbi(fbi, fbiBa, linewidth=4, figsize=(18,12), fontsize=20):
+
+    font = {'family': 'serif',
+        'color':  'black',
+        'weight': 'bold',
+        'size': 18,
+        }
+
+    fig = plt.figure(figsize=figsize)
+    ax  = fig.add_subplot(1, 1, 1)
+    set_fonts(ax, fontsize=fontsize)
+
+    plt.xlim(300, 750)
+    plt.plot(fbi['W'],fbi['I'], linewidth=linewidth, color='g', label="FBI")
+    plt.plot(fbiBa['W'],fbiBa['I'], linewidth=linewidth, color='b',label="FBI-BA$^{++}$")
+    plt.axvline(x=450,linestyle='dashed', color='k',linewidth=2)
+    plt.xlabel('$\lambda$ (nm)')
+    plt.ylabel('I (a.u.)')
+    #plt.text(325, 90, 'a)', fontdict=font)
+    #plt.title(title)
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
     plt.show()
