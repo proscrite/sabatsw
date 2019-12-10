@@ -6,6 +6,7 @@ from  invisible_cities.core.system_of_units import *
 import matplotlib.pyplot as plt
 
 from pandas import DataFrame, Series
+from matplotlib import cm as cmp
 
 def get_profile(df, cut,  xlsx=True):
     """Gets the profile in Z of the sample"""
@@ -58,12 +59,32 @@ def set_fonts(ax, fontsize=20):
         item.set_fontsize(fontsize)
 
 
-def plot_TOM(tom, figsize=(18,12)):
+def plot_TOM(tom, vmin = 0, interpolation='spline36', cmap='viridis', figsize=(18,12)):
+    norm = cmp.colors.Normalize(vmax=tom.max().max(), vmin=vmin)
     fig = plt.figure(figsize=figsize)
     ax      = fig.add_subplot(1, 1, 1)
-    plt.imshow(tom.values.T)
+    if interpolation:
+        plt.imshow(tom.values.T, norm=norm, interpolation='spline36', cmap=cmap)
+    else:
+        plt.imshow(tom.values.T, norm=norm,  cmap=cmap)
     plt.xlabel('X scan')
     plt.ylabel('Z scan')
+    plt.show()
+
+
+def plot_TOMS(toms, xw=2, yw=2, vmin=0, interpolation=False, cmap='viridis', figsize=(18,12)):
+
+    fig = plt.figure(figsize=figsize)
+    for i, tom in enumerate(toms):
+        ax      = fig.add_subplot(xw, yw, i+1)
+        norm = cmp.colors.Normalize(vmax=tom.max().max(), vmin=vmin)
+        if interpolation:
+            plt.imshow(tom.values.T, norm=norm, interpolation='spline36', cmap=cmap)
+        else:
+            plt.imshow(tom.values.T, norm=norm, cmap=cmap)
+    plt.xlabel('X scan')
+    plt.ylabel('Z scan')
+    plt.tight_layout()
     plt.show()
 
 

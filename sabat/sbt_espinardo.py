@@ -22,6 +22,10 @@ from collections import Counter
 import collections
 
 ## File manipulation
+def read_TOM(ipath, name):
+    file = os.path.join(ipath, name)
+    tom = read_xls_files(file)
+    return tom
 
 def get_jpeg_dirs(ipath :str)->List:
     """Get the jpeg dirs in ipath"""
