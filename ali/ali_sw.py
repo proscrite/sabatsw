@@ -24,7 +24,9 @@ def plot_pressure_curve(df : pd.DataFrame,
                         tit : str,
                         scale : str = 'min',
                         th : float = 0.1,
-                        flag_p : bool = True):
+                        min_sp : int = 50,
+                        flag_p : bool = True,
+                        ax = None):
     """Plot ALI pressure curves and apply peak and troughs finding algorithm
     Parameters
     ----------
@@ -36,8 +38,9 @@ def plot_pressure_curve(df : pd.DataFrame,
         x-axis scale. Accepts 'min' (default), 's' and 'ms'
 	th : float
 		troughs-to-next-peak time-distance threshold
+    min_sp : int
+        minimum separation between peaks, default 50 entries
     """
-    plt.figure(figsize=(10,8))
 
     if scale == 'ms':
         x = 0.1
@@ -45,20 +48,24 @@ def plot_pressure_curve(df : pd.DataFrame,
         x = 100
     else:
         x = 6000
+    if ax == None: ax = plt.gca(); fig = plt.gcf()
 
-    plt.plot(df.index.values/x, df.p_chamber.values, '-', label=tit);
+    ax.plot(df.index.values/x, df.p_chamber.values, '-', label=tit);
 
-    plt.xlabel('Time ['+scale+']', fontsize=14)
-    plt.yscale('log')
-    plt.ylabel('Chamber pressure [mbar]', fontsize=14)
-    plt.legend(loc=0,fontsize=14);
+    ax.set_xlabel('Time ['+scale+']', fontsize=14)
+    ax.set_yscale('log')
+    ax.set_ylabel('Chamber pressure [mbar]', fontsize=14)
+    ax.legend(loc=0,fontsize=14);
 
     if flag_p:
-        peaks, troughs = peaks_and_troughs(df.p_chamber.values, min_space=100, th=th)
+        peaks, troughs = peaks_and_troughs(df.p_chamber.values, min_space=min_sp, th=th)
 
-        plt.plot(troughs/x, df.p_chamber[troughs], 'o', markersize=10)
-        plt.plot(peaks/x, df.p_chamber[peaks], '*', markersize=10)
+        ax.plot(troughs/x, df.p_chamber[troughs], 'o', markersize=10, label='__nolegend__')
+        ax.plot(peaks/x, df.p_chamber[peaks], '*', markersize=10, label='__nolegend__')
         return [peaks, troughs]
+
+    fig.set_figwidth(10)
+    fig.set_figheight(8)
 
 def peaks_and_troughs (y : np.array, min_space : int = 100, th = 0.3) -> (np.array, np.array) :
     """ Find peaks and troughs in an array 'y'
@@ -193,7 +200,7 @@ def overlay_peaks(df: pd.DataFrame, peaks: np.array, troughs: np.array,
     plt.figure(figsize=(10,8))
 
     for i in range(npulses):
-        y = df.p_chamber[troughs[i]:peaks[i]+xrange]/sc
+        y = df.p_chamber[troughs[i]:peaks[i]+xrange]
         x = df.index[troughs[i]:peaks[i]+xrange]/sc - df.index[troughs[i]]/sc
 
         plt.plot(x, y, '-', label='peak '+str(i));
@@ -243,4 +250,47 @@ def zoom_peak(peak_id : int,
 
     x=df.index[troughs[peak_id] : peaks[peak_id]]/100
     plt.fill_between(x, df.p_chamber[troughs[peak_id]], df.p_chamber[troughs[peak_id]:peaks[peak_id]],  color='0.9')#, label='q$_L$ = %.2f mbar•L/s'%q[peak_id])
-    
+
+def filterRepeatedOccurrences(a : np.array, th: int = 10) -> np.array:
+    """Select first occurrence in an array of indices
+    by computing backwards the distance between them and filtering out the immediate neighbours
+    Input:
+    a : np.array
+        array of indices with the position of the neighboring occurrences
+    th : int = 10
+        threshold of minimum distance between desired occurrences"""
+
+    b = np.where(a[-1:0:-1] - a[-2::-1] > 10)[0]       # Since we iterated backwards, the resulting b array is also in the reverse order, so we flip it
+    return np.flip(a[len(a)-1 - b])
+
+def findRecoveryPoints(pChamber : np.array, pAct : float) -> np.array:
+    """Compute recovery time until a specified pressure level is reached
+    Input:
+    pChamber : np.array
+        pressure line where to search into
+    pAct : float = 0
+        pressure level to reach."""
+
+    a = np.where(pChamber < pAct)[0]
+    recPoints = filterRepeatedOccurrences(a)
+    return recPoints
+
+def computeRecoveryTimes(recPoints : np.array, scale : str = 's') -> np.array:
+    """From array of recovery time point indices, compute recovery times as distance in time between these"""
+    if scale == 'ms':
+        sc = 0.1
+    elif scale == 'min':
+        sc = 6000
+    else: sc = 100
+
+    recTimes = recPoints[1:] - recPoints[:-1]
+    return recTimes/sc
+
+def computePAct(df : pd.DataFrame, troughs : np.array, flag_df : bool = False) -> float:
+    """Estimate actuation pressure from the values of the troughs positions
+    If flag_df is activated, the value in p_act will be taken (useful if ALI enters in OFF time)"""
+
+    if flag_df: p_act = df.p_act[0]
+    else:
+        p_act = np.average(df.p_chamber[troughs]) + np.std(df.p_chamber[troughs])
+    return p_act

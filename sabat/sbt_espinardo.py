@@ -324,7 +324,7 @@ def plot_avg_intensity(DF, imax = 200, err=None, figsize=(12,12)):
     plt.ylim(0,imax)
     plt.xlabel('shot number')
     plt.ylabel('I (a.u.)')
-    plt.show()
+    #plt.show()
 
 def plot_total_intensity(DF, imax = 1e+7, figsize=(12,12)):
     I = total_intensity(DF)
@@ -334,7 +334,7 @@ def plot_total_intensity(DF, imax = 1e+7, figsize=(12,12)):
     plt.ylim(0,imax)
     plt.xlabel('shot number')
     plt.ylabel('I (a.u.)')
-    plt.show()
+    #plt.show()
 
 def avg_intensity(DF):
     return [df.T.mean().mean() for df in DF]
