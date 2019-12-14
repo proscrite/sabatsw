@@ -35,7 +35,8 @@ def display_profile(df, cut=0, zrange=(0,200), yrange=(0,200), xlsx=False, figsi
     plt.show()
 
 
-def display_profiles(dfs, cuts, zrange=(0,200), yrange=(0,200), xlsx=False, figsize=(12,6)):
+def display_profiles(dfs, cuts, labels, zrange=(0,200), yrange=(0,200),
+xlsx=False, figsize=(12,6)):
 
     fig = plt.figure(figsize=figsize)
     ax      = fig.add_subplot(1, 1, 1)
@@ -49,14 +50,79 @@ def display_profiles(dfs, cuts, zrange=(0,200), yrange=(0,200), xlsx=False, figs
 
     for i, df in enumerate(dfs):
         Z,ZV = get_profile(df, cuts[i], xlsx)
-        plt.plot(ZV)
+        plt.plot(ZV, label=labels[i])
     plt.tight_layout()
+    plt.legend()
     plt.show()
+
 
 def set_fonts(ax, fontsize=20):
     for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
              ax.get_xticklabels() + ax.get_yticklabels()):
         item.set_fontsize(fontsize)
+
+def plot_tom_ratio(dr, figsize=(10,8), log=True):
+    X = np.array(list(dr.keys()))
+    Y = np.array(list(dr.values()))
+
+    fig = plt.figure(figsize=figsize)
+    ax      = fig.add_subplot(1, 1, 1)
+    if log:
+        plt.semilogy(X,Y)
+    else:
+        plt.plot(X,Y)
+    plt.xlabel('Cut level')
+    plt.ylabel('R')
+    plt.show()
+
+
+def plot_tom_ratios(drs, labels, linewidth=2, log=True, figsize=(10,8)):
+
+    fig = plt.figure(figsize=figsize)
+    ax      = fig.add_subplot(1, 1, 1)
+
+    for i, dr in enumerate(drs):
+        X = np.array(list(dr.keys()))
+        Y = np.array(list(dr.values()))
+        if log:
+            plt.semilogy(X,Y,linewidth=linewidth, label=labels[i])
+        else:
+            plt.plot(X,Y,linewidth=linewidth, label=labels[i])
+    plt.xlabel('Cut level')
+    plt.ylabel('R')
+    plt.legend()
+    plt.show()
+
+def display_tom_ratios(drs, labels, linewidth=2, fontsize=30, figsize=(10,8)):
+
+    plt.rcParams["font.size"     ] = fontsize
+    fig = plt.figure(figsize=figsize)
+    ax      = fig.add_subplot(1, 1, 1)
+    set_fonts(ax, fontsize=fontsize)
+
+    for i, dr in enumerate(drs):
+        X = np.array(list(dr.keys()))
+        Y = np.array(list(dr.values()))
+        plt.semilogy(X,Y,linewidth=linewidth, label=labels[i])
+    plt.xlabel('Cut level')
+    plt.ylabel('R')
+    plt.legend()
+    plt.show()
+
+
+def display_tom_ratio(dr, linewidth=2, fontsize=30, figsize=(10,8)):
+    plt.rcParams["font.size"     ] = fontsize
+    fig = plt.figure(figsize=figsize)
+    ax      = fig.add_subplot(1, 1, 1)
+    set_fonts(ax, fontsize=fontsize)
+
+
+    X = np.array(list(dr.keys()))
+    Y = np.array(list(dr.values()))
+    plt.semilogy(X,Y,linewidth=linewidth)
+    plt.xlabel('Cut level')
+    plt.ylabel('R')
+    plt.show()
 
 
 def plot_TOM(tom, vmin = 0, interpolation='spline36', cmap='viridis', figsize=(18,12)):
@@ -269,6 +335,8 @@ def plot_spectra(dfs,
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+
 
 
 def plot_fbi(fbi, fbiBa, bkg=False, bkgdf=None,
