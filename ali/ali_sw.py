@@ -23,7 +23,9 @@ def plot_pressure_curve(df : pd.DataFrame,
                         tit : str,
                         scale : str = 'min',
                         th : float = 0.1,
-                        flag_p : bool = True):
+                        min_sp : int = 50,
+                        flag_p : bool = True,
+                        ax = None):
     """Plot ALI pressure curves and apply peak and troughs finding algorithm
     Parameters
     ----------
@@ -35,8 +37,9 @@ def plot_pressure_curve(df : pd.DataFrame,
         x-axis scale. Accepts 'min' (default), 's' and 'ms'
 	th : float
 		troughs-to-next-peak time-distance threshold
+    min_sp : int
+        minimum separation between peaks, default 50 entries
     """
-    plt.figure(figsize=(10,8))
 
     if scale == 'ms':
         x = 0.1
@@ -44,20 +47,24 @@ def plot_pressure_curve(df : pd.DataFrame,
         x = 100
     else:
         x = 6000
+    if ax == None: ax = plt.gca(); fig = plt.gcf()
 
-    plt.plot(df.index.values/x, df.p_chamber.values, '-', label=tit);
+    ax.plot(df.index.values/x, df.p_chamber.values, '-', label=tit);
 
-    plt.xlabel('Time ['+scale+']', fontsize=14)
-    plt.yscale('log')
-    plt.ylabel('Chamber pressure [mbar]', fontsize=14)
-    plt.legend(loc=0,fontsize=14);
+    ax.set_xlabel('Time ['+scale+']', fontsize=14)
+    ax.set_yscale('log')
+    ax.set_ylabel('Chamber pressure [mbar]', fontsize=14)
+    ax.legend(loc=0,fontsize=14);
 
     if flag_p:
-        peaks, troughs = peaks_and_troughs(df.p_chamber.values, min_space=100, th=th)
+        peaks, troughs = peaks_and_troughs(df.p_chamber.values, min_space=min_sp, th=th)
 
-        plt.plot(troughs/x, df.p_chamber[troughs], 'o', markersize=10)
-        plt.plot(peaks/x, df.p_chamber[peaks], '*', markersize=10)
+        ax.plot(troughs/x, df.p_chamber[troughs], 'o', markersize=10, label='__nolegend__')
+        ax.plot(peaks/x, df.p_chamber[peaks], '*', markersize=10, label='__nolegend__')
         return [peaks, troughs]
+
+    fig.set_figwidth(10)
+    fig.set_figheight(8)
 
 def peaks_and_troughs (y : np.array, min_space : int = 100, th = 0.3) -> (np.array, np.array) :
     """ Find peaks and troughs in an array 'y'
