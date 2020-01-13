@@ -7,6 +7,7 @@ import os
 import peakutils
 import datetime
 import warnings
+from mpl_toolkits.mplot3d import Axes3D
 
 def load_raw_ali_df ( filename ) :
     """load a df, if filename correctly found, and transform Date/Time from string to Timestamp type"""
@@ -179,3 +180,117 @@ def plot_leak_distributions(delta_m : np.array,
     ax[1].legend(loc='best', fontsize=14)
 
     return([avg_m, sd_m, avg_t, sd_t])
+
+def overlay_peaks(df: pd.DataFrame, peaks: np.array, troughs: np.array,
+                  npulses : int, xrange : int = 900, scale: str = 's'):
+    """Shift and overlap pulses to check reproducibility.
+    Params
+    ----------
+    npulses : int
+        Number of pulses to show
+    xrange: int
+        pulse duration in entries. Default 900 = 9 s
+    scale: str
+        time scale, accepts: 'ms' and (default) 's'
+    """
+    if scale == 'ms':
+        sc = 1
+    else:
+        sc = 100
+    plt.figure(figsize=(10,8))
+
+    for i in range(npulses):
+        y = df.p_chamber[troughs[i]:peaks[i]+xrange]
+        x = df.index[troughs[i]:peaks[i]+xrange]/sc - df.index[troughs[i]]/sc
+
+        plt.plot(x, y, '-', label='peak '+str(i));
+
+        plt.xlabel('Time ['+scale+']', fontsize=14)
+        plt.yscale('log')
+        plt.ylabel('Chamber pressure [mbar]', fontsize=14)
+        plt.legend(loc='right',fontsize=14)
+
+def plot3d_pulses(df : pd.DataFrame, peaks: np.array, troughs: np.array,
+                  npulses: int,
+                  xrange: int = 400, scale: str = 's'):
+    """Shift and 3d-plot npulses"""
+
+    if scale == 'ms':
+        sc = 1
+    else:
+        sc = 100
+
+    fig = plt.figure(figsize=(10,8))
+    ax = plt.axes(projection='3d')
+
+    for i in range(npulses-1,-1,-1):
+        y = df.p_chamber[troughs[i]:peaks[i]+xrange]/sc
+        x = df.index[troughs[i]:peaks[i]+xrange]/sc - df.index[troughs[i]]/sc
+
+        ax.plot(x, y, zs=i, zdir='y', label='peak '+str(i));
+
+        ax.set_xlabel('\nTime ['+scale+']')#, linespacing=3)
+        ax.set_zscale('log')
+        ax.set_zlabel('\nChamber pressure [mbar]')
+        ax.set_ylabel('\nPeak nr')
+
+    #     ax.legend(loc='right',fontsize=14)
+    ax.view_init(elev=25., azim=-65)
+    plt.show()
+
+def zoom_peak(peak_id : int,
+             df : pd.DataFrame,
+             peaks : np.array, troughs : np.array,
+             xrange : int = 900):
+    """Use plot_pressure_curve focused on a specific peak index (peak_id)
+    and specify time range (default 900 s)"""
+    plot_pressure_curve(df[troughs[peak_id]:peaks[peak_id]+xrange], tit='Peak '+str(peak_id), scale='s', flag_p=False)
+    plt.plot(troughs[peak_id]/100, df.p_chamber[troughs[peak_id]], 'o', markersize=10)
+    plt.plot(peaks[peak_id]/100, df.p_chamber[peaks[peak_id]], 'o', markersize=10)
+
+    x=df.index[troughs[peak_id] : peaks[peak_id]]/100
+    plt.fill_between(x, df.p_chamber[troughs[peak_id]], df.p_chamber[troughs[peak_id]:peaks[peak_id]],  color='0.9')#, label='q$_L$ = %.2f mbar•L/s'%q[peak_id])
+
+def filterRepeatedOccurrences(a : np.array, th: int = 10) -> np.array:
+    """Select first occurrence in an array of indices
+    by computing backwards the distance between them and filtering out the immediate neighbours
+    Input:
+    a : np.array
+        array of indices with the position of the neighboring occurrences
+    th : int = 10
+        threshold of minimum distance between desired occurrences"""
+
+    b = np.where(a[-1:0:-1] - a[-2::-1] > 10)[0]       # Since we iterated backwards, the resulting b array is also in the reverse order, so we flip it
+    return np.flip(a[len(a)-1 - b])
+
+def findRecoveryPoints(pChamber : np.array, pAct : float) -> np.array:
+    """Compute recovery time until a specified pressure level is reached
+    Input:
+    pChamber : np.array
+        pressure line where to search into
+    pAct : float = 0
+        pressure level to reach."""
+
+    a = np.where(pChamber < pAct)[0]
+    recPoints = filterRepeatedOccurrences(a)
+    return recPoints
+
+def computeRecoveryTimes(recPoints : np.array, scale : str = 's') -> np.array:
+    """From array of recovery time point indices, compute recovery times as distance in time between these"""
+    if scale == 'ms':
+        sc = 0.1
+    elif scale == 'min':
+        sc = 6000
+    else: sc = 100
+
+    recTimes = recPoints[1:] - recPoints[:-1]
+    return recTimes/sc
+
+def computePAct(df : pd.DataFrame, troughs : np.array, flag_df : bool = False) -> float:
+    """Estimate actuation pressure from the values of the troughs positions
+    If flag_df is activated, the value in p_act will be taken (useful if ALI enters in OFF time)"""
+
+    if flag_df: p_act = df.p_act[0]
+    else:
+        p_act = np.average(df.p_chamber[troughs]) + np.std(df.p_chamber[troughs])
+    return p_act

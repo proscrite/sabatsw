@@ -295,7 +295,11 @@ def load_mid_data(filename : str) -> pd.DataFrame:
     head = pd.read_csv(filename, sep='\s+', skiprows=5, nrows=1)
     names = head.columns.values
     nions = len(names)
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> 3477774186c9cce3b7fc187ae05e3cd117099fc9
     ##### Establish the column names (timestamp, relative_time and ion_current) as index in level 1
     index2 = np.array(['time', 'rel_time', 'ion_current'])
 
