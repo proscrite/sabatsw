@@ -153,7 +153,7 @@ def polishDfPeak(dfp, nsigma : int = 2) -> pd.DataFrame:
 
     dfp.drop(['peak'+str(i) for i in peaksID], axis=1, inplace=True)
     return dfp
-    
+
 def save_processed_peaks(path: str):
     """Save dfp with .pyk extension to subdirectory 'processed_peaks' of current directory,
     create it if it does not exist"""
@@ -170,3 +170,25 @@ def save_processed_peaks(path: str):
 
         print('Saving processed peaks df to ', path_pyk)
         dfp.to_csv(path_pyk)
+
+######   Main   ######
+
+parser = argparse.ArgumentParser(description='Process some ALI data.')
+parser.add_argument('inPath', metavar='inPath', type=str,
+                    help='Path to the Raw ALI data')
+parser.add_argument('-L', metavar='peakLength', type=int, nargs=1,
+                    default = 0,
+                    help='Number of time points')
+
+parser.add_argument('-p', dest='plotter', action='store_const',
+                    const=plotAverageProfile,
+                    help='Plot average profile with CI')
+args = parser.parse_args()
+
+
+dfp = process_dfRaw_peaks(args.inPath, peakLength = args.L )#args.peakLength)
+save_processed_peaks(args.inPath)
+
+if args.plotter:
+    args.plotter(dfp)
+    plt.show(block=True)         
