@@ -153,3 +153,20 @@ def polishDfPeak(dfp, nsigma : int = 2) -> pd.DataFrame:
 
     dfp.drop(['peak'+str(i) for i in peaksID], axis=1, inplace=True)
     return dfp
+    
+def save_processed_peaks(path: str):
+    """Save dfp with .pyk extension to subdirectory 'processed_peaks' of current directory,
+    create it if it does not exist"""
+
+    path_array = os.path.split(path)
+    path_pyk = path_array[0] + '/processed_peaks/' + path_array[1] + '.pyk'
+    try :
+        print('Saving processed peaks df to ', path_pyk)
+        dfp.to_csv(path_pyk)
+    except FileNotFoundError:
+        print('Lets try soming else')
+        print('processed_peaks subdirectory did not exist yet, creating it...')
+        os.mkdir(path_array[0] + '/processed_peaks')
+
+        print('Saving processed peaks df to ', path_pyk)
+        dfp.to_csv(path_pyk)
