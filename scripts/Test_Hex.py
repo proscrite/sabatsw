@@ -1,5 +1,5 @@
 import serial, time
-s = serial.Serial(port='/dev/cu.usbmodem1421', baudrate=115200)
+s = serial.Serial(port='COM4', baudrate=115200)
 
 time.sleep(1)
 
@@ -12,7 +12,7 @@ def SendToDAC(Head,CH,value):
     #       \xCC: DAC Reset
     # CH: Channel number (\x10, \x11, \x12 or \x13)
     # Value: 16 bit DAC setting. 0 to 65535 (32768 for 0)
-    
+
     command = Head
     command += CH + (value).to_bytes(2,byteorder='big')
     #                  ↑ Number between 0 and 65535
@@ -28,5 +28,3 @@ time.sleep(.1)
 while s.in_waiting: # Print while serial input buffer has something
     time.sleep(.1)
     print(s.readline())
-
-

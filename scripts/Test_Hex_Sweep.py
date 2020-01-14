@@ -12,7 +12,7 @@ def SendToDAC(Head,CH,value):
     #       \xCC: DAC Reset
     # CH: Channel number (\x10, \x11, \x12 or \x13)
     # Value: 16 bit DAC setting. 0 to 65535 (32768 for 0)
-    
+
     command = Head
     command += CH + (value).to_bytes(2,byteorder='big')
     #                  ↑ Number between 0 and 65535
@@ -32,6 +32,3 @@ for j in range(5): # Loops for (almost) full range movement
         SendToDAC(b'\xAA',b'\x11',i)
         time.sleep(.01)
         #print(i)
-
-
-
