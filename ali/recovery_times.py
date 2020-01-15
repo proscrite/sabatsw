@@ -48,3 +48,67 @@ def computePAct(df : pd.DataFrame, troughs : np.array, flag_df : bool = False) -
     else:
         p_act = np.average(df.p_chamber[troughs]) + np.std(df.p_chamber[troughs])
     return p_act
+
+
+#### To use exclusively with dfp (peaks df) NOT with dfRaw  ####
+
+def plotRecoveryTimes(dfp : pd.DataFrame, pAct : float) -> list:
+    """Compute and plot recovery times from a dfpPeak and specified pAct
+    Return recovery time
+    Input:
+    dfp : pd.DataFrame
+        ALI peaks df (from .pyk file)
+    pAct : float
+        pressure threshold for recovery time
+    """
+    rT = []
+    Npeaks = len(dfp.columns)
+    for i in range(Npeaks):
+        rPt = findRecoveryPoints(dfp['peak'+str(i)], pAct)
+        if len(rPt) > 0:
+            rT.append(rPt[0]/100)
+    plt.plot(rT, 'o')
+    plt.xlabel('peak nr.')
+    plt.ylabel('recovery time [s]')
+    return rT
+
+def plot_maxP(df : pd.DataFrame) -> list:
+    """Compute and plot max reached pressures in a dfPeak
+    Return list of maxP
+    Input:
+    dfp : pd.DataFrame
+        ALI peaks df (from .pyk file)
+    Output:
+    maxP : list
+        List of max. pressures reached per peak"""
+
+    maxP = []
+    for i in range(Npeaks):
+        maxP.append(np.max(df['peak'+str(i)]))
+    plt.semilogy(maxP, 'o')
+
+    plt.xlabel('peak nr.')
+    plt.ylabel('max p_chamber [mbar]')
+    return maxP
+
+def depletionFromMaxP(dfp) -> int:
+    """Find liquid exhaustion moment by fitting a constant to the maxP
+    scatter and choosing the maximum value of chi2. Plot fit and Chi2"""
+
+    maxP = plot_maxP(df)
+    x = np.arange(len(maxP))
+    UmaxP = 0.3 * np.array(maxP)
+    from scipy.optimize import curve_fit
+    def func (x, a): return a
+
+    fit, cov = curve_fit(func,x, maxP)#, sigma=UmaxP, absolute_sigma=True)
+    sd = np.std(maxP)
+    # sd = cov[0]
+    chi2 = (maxP - fit[0])**2/UmaxP**2
+
+    plt.axhline(y=fit[0], color='r')
+    plt.plot(x, chi2, '.')
+    # plt.fill_between(x, fit[0]-cov[0], fit[0]+cov[0], color='g', alpha=0.5)
+    plt.fill_between(x, fit[0]-sd, fit[0]+sd, color='r', alpha=0.3)
+    plt.title('Max pressure per pulse')
+    return np.argmax(chi2)
