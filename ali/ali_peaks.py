@@ -8,7 +8,7 @@ import sys
 import datetime
 import warnings
 
-from ali_sw import load_raw_ali_df
+from ali.ali_sw import load_raw_ali_df
 import argparse
 
 def process_dfRaw_peaks(path : str, peakLength : int = 0) -> pd.DataFrame:
@@ -119,7 +119,6 @@ def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 
     nsigma: int
         Level of confidence for peaks total residuals. Default: False"""
     import matplotlib.pyplot as plt
-    plt.figure(figsize=(10,10))
     sc = 100 # Timescale: seconds
 
 
@@ -143,6 +142,9 @@ def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 
     ax.set_yscale('log')
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Pressure [mbar]')
+    plt.gcf().set_figwidth(12)
+    plt.gcf().set_figheight(12)
+
 
 def polishDfPeak(dfp, nsigma : int = 2) -> pd.DataFrame:
     """Drop peaks with total residual lying outside of the specified confidence interval
@@ -154,7 +156,7 @@ def polishDfPeak(dfp, nsigma : int = 2) -> pd.DataFrame:
     dfp.drop(['peak'+str(i) for i in peaksID], axis=1, inplace=True)
     return dfp
 
-def save_processed_peaks(path: str):
+def save_processed_peaks(path: str, dfp : pd.DataFrame):
     """Save dfp with .pyk extension to subdirectory 'processed_peaks' of current directory,
     create it if it does not exist"""
 
@@ -170,25 +172,3 @@ def save_processed_peaks(path: str):
 
         print('Saving processed peaks df to ', path_pyk)
         dfp.to_csv(path_pyk)
-
-######   Main   ######
-
-parser = argparse.ArgumentParser(description='Process some ALI data.')
-parser.add_argument('inPath', metavar='inPath', type=str,
-                    help='Path to the Raw ALI data')
-parser.add_argument('-L', metavar='peakLength', type=int, nargs=1,
-                    default = 0,
-                    help='Number of time points')
-
-parser.add_argument('-p', dest='plotter', action='store_const',
-                    const=plotAverageProfile,
-                    help='Plot average profile with CI')
-args = parser.parse_args()
-
-
-dfp = process_dfRaw_peaks(args.inPath, peakLength = args.L )#args.peakLength)
-save_processed_peaks(args.inPath)
-
-if args.plotter:
-    args.plotter(dfp)
-    plt.show(block=True)         
