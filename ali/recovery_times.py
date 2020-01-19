@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 import glob
 import os
@@ -23,7 +24,10 @@ def findRecoveryPoints(pChamber : np.array, pAct : float) -> np.array:
     pChamber : np.array
         pressure line where to search into
     pAct : float = 0
-        pressure level to reach."""
+        pressure level to reach.
+    Output:
+        a : np.array
+        recovery point indices for the whole timeline"""
 
     a = np.where(pChamber < pAct)[0]
     a = filterRepeatedOccurrences(a)
@@ -50,9 +54,30 @@ def computePAct(df : pd.DataFrame, troughs : np.array, flag_df : bool = False) -
     return p_act
 
 
+
+
 #### To use exclusively with dfp (peaks df) NOT with dfRaw  ####
 
-def plotRecoveryTimes(dfp : pd.DataFrame, pAct : float) -> list:
+
+def peakRecoveryTimes(pChamber : np.array, pAct : float) -> np.array:
+    """Compute recovery time until a specified pressure level is reached
+    Input:
+    pChamber : np.array
+        pressure line where to search into
+    pAct : float = 0
+        pressure level to recover.
+    Output:
+        rT : np.array
+        recovery times for the whole timeline"""
+
+    a = np.where(pChamber < pAct)[0]
+    b = filterRepeatedOccurrences(a)
+    if len(b) == 0 :     # Can happen if the peak starts over pAct
+        return np.nan
+    else :
+        return b/100
+
+def plotRecoveryTimes(dfp : pd.DataFrame, pAct : float , ax : plt.axes = plt.gca()) -> list:
     """Compute and plot recovery times from a dfpPeak and specified pAct
     Return recovery time
     Input:
@@ -67,12 +92,14 @@ def plotRecoveryTimes(dfp : pd.DataFrame, pAct : float) -> list:
         rPt = findRecoveryPoints(dfp['peak'+str(i)], pAct)
         if len(rPt) > 0:
             rT.append(rPt[0]/100)
-    plt.plot(rT, 'o')
-    plt.xlabel('peak nr.')
-    plt.ylabel('recovery time [s]')
+    if ax == None:
+        ax = plt.gca()
+    ax.plot(rT, 'o')
+    ax.set_xlabel('peak nr.')
+    ax.set_ylabel('recovery time [s]')
     return rT
 
-def plot_maxP(df : pd.DataFrame) -> list:
+def plot_maxP(dfp : pd.DataFrame, ax : plt.axes = plt.gca()) -> list:
     """Compute and plot max reached pressures in a dfPeak
     Return list of maxP
     Input:
@@ -82,20 +109,18 @@ def plot_maxP(df : pd.DataFrame) -> list:
     maxP : list
         List of max. pressures reached per peak"""
 
-    maxP = []
-    for i in range(Npeaks):
-        maxP.append(np.max(df['peak'+str(i)]))
-    plt.semilogy(maxP, 'o')
+    maxP = dfp.max(axis=0).values
+    ax.semilogy(maxP, 'o')
 
-    plt.xlabel('peak nr.')
-    plt.ylabel('max p_chamber [mbar]')
+    ax.set_xlabel('peak nr.')
+    ax.set_ylabel('$p_{max}$ [mbar]')
     return maxP
 
 def depletionFromMaxP(dfp) -> int:
     """Find liquid exhaustion moment by fitting a constant to the maxP
     scatter and choosing the maximum value of chi2. Plot fit and Chi2"""
 
-    maxP = plot_maxP(df)
+    maxP = plot_maxP(dfp)
     x = np.arange(len(maxP))
     UmaxP = 0.3 * np.array(maxP)
     from scipy.optimize import curve_fit
