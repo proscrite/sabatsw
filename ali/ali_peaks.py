@@ -4,12 +4,14 @@ import numpy as np
 import glob
 import os
 import sys
+import re
 
 import datetime
 import warnings
+from dataclasses import dataclass
+
 
 from ali.ali_sw import load_raw_ali_df
-import argparse
 
 def process_dfRaw_peaks(path : str, peakLength : int = 0) -> pd.DataFrame:
     """Method to process ALI raw df into peak df
@@ -111,7 +113,7 @@ def plotResiduesDistribution(dfp : pd.DataFrame, nsigma : int = 2) -> list:
 
     return ['peak'+str(i) for i in peaksID]
 
-def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 2, ax = None, color = 'k', lb : str = ''):
+def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 2, ax = None, color = 'b', lb : str = ''):
     """Plot average curve profile and the peaks with residuals larger than the specified Confidence Level
     Parameters:
     flag_p: bool
@@ -134,9 +136,8 @@ def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 
         for p in peaksID:
             ax.plot(dfp.index/sc, dfp[p].values, label = p)
 
-    if lb == '': lb = 'Average Profile'
     ax.plot(dfp.index/sc, av_p, color, label = lb)
-    ax.fill_between(dfp.index/sc, av_p-sd_p, av_p+sd_p, color=color, alpha=0.1, label = '%i sigma CI' %nsigma)
+    ax.fill_between(dfp.index/sc, av_p-sd_p, av_p+sd_p, color=color, alpha=0.3)
 
     ax.legend(loc='upper right')
     ax.set_yscale('log')
@@ -172,3 +173,27 @@ def save_processed_peaks(path: str, dfp : pd.DataFrame):
 
         print('Saving processed peaks df to ', path_pyk)
         dfp.to_csv(path_pyk)
+
+@dataclass
+class AliPeaks:
+    "ALI dataclass, peaks df and metadata"
+    dfp : pd.DataFrame
+    p_gas : str
+    t_on : str
+    date : str
+    other_meta : str = None
+
+def import_peaks(path : str) -> list:
+    """Preliminar import peaks dfp and metadata
+    Should go into AliPeaks class
+    Returns: dfp, p_gas, t_on, date"""
+    dfp = pd.read_csv(path, index_col = 0)
+    filename = os.path.split(path)[1]
+    p_gas  = re.search('\d+mbar', filename).group(0)
+    t_on = re.search('\d+ms', filename).group(0)
+    da = re.search('/\d+_', path).group(0).replace('/', '').replace('_', '')
+    date = re.sub('(\d{2})(\d{2})(\d{4})', r"\1.\2.\3", da, flags=re.DOTALL)
+
+    other_meta = filename.replace(p_gas, '').replace(t_on, '').replace(date, '')
+
+    return AliPeaks(dfp, p_gas, t_on, date, other_meta)
