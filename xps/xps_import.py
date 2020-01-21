@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import peakutils
+import os
+import re
 from scipy.optimize import curve_fit
 
 from dataclasses import dataclass
@@ -100,13 +102,31 @@ def check_arrays(dfr) -> bool:
 
 @dataclass
 class XPS_experiment:
-    "XPS dataclass with regions dfx and metadata"
+    """XPS dataclass with regions dfx and metadata
+    Attrs:
+    -------
+    dfx : pd.DataFrame
+        table containing all regions found in .xy file
+    delimiters : tuple
+        position, extension and name of each region to correctly import dfx
+    name : str = None
+        short name to reference the experiment
+    label : str = None
+        longer description of the experiment (cleaning, preparation conditions...)
+    date : str = None
+        experiment date as read in the filename
+    other_meta : str = None
+        other info contained in the filename
+    """
     dfx : pd.DataFrame
     delimiters : tuple
+    name : str = None
+    label : str = None
     date : str = None
     other_meta : str = None
 
-def xps_data_import(path : str) -> XPS_experiment:
+
+def xps_data_import(path : str, name : str = None, ) -> XPS_experiment:
     """Method to arrange a XPS_experiment data"""
     dfx = import_xps_df(path)
     delimiters = xy_region_delimiters(path)
@@ -120,5 +140,5 @@ def xps_data_import(path : str) -> XPS_experiment:
     da = re.search('\d+_', filename).group(0).replace('/', '').replace('_', '')
     date = re.sub('(\d{4})(\d{2})(\d{2})', r"\1.\2.\3", da, flags=re.DOTALL)
     other_meta = dir_name + filename.replace(da, '')
-    other_meta
-    return XPS_experiment(dfx, delimiters, date, other_meta)
+
+    return XPS_experiment(dfx, delimiters, name, date, other_meta)
