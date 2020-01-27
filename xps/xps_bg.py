@@ -3,12 +3,63 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import peakutils
+from copy import deepcopy
 from scipy.optimize import curve_fit
 
 from dataclasses import dataclass
 from xps.xps_import import XPS_experiment
-from xps.xps_analysis import plot_region
+from xps.xps_analysis import plot_region, cosmetics_plot
 
+def find_and_plot_peaks(df : pd.DataFrame, thres : float = 0.5, min_d : int = 10, col : str = 'r'):
+    leny = len(df.index)
+    peaks =  peakutils.indexes(df.counts.values, thres=thres, min_dist=min_d)
+    x_peaks = leny - df.index[peaks]
+    y_peaks = df.counts.values[peaks]
+    plt.plot(x_peaks, y_peaks, col+'o', label='Peaks at thres = %.1f' %thres)
+
+    return peaks
+
+def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region : str = 'overview_', lb : tuple = None, mode : str = 'max', thres: float = 0.5, min_d: int = 10) -> float:
+    """Plot two spectra and compute average count ratio between main peaks for scaling
+    Input:
+    -----------------
+    df: pd.DataFrame
+        DataFrame containing the spectrum region to scale UP
+    dfRef: pd.DataFrame
+        Reference DataFrame to compare to
+    lb : tuple
+        Labels for legend
+    thres : float
+        Peak-finding count threshold, shouldn't be too low
+    min_d : int
+        Minimum separation between peaks
+    mode : str
+        Compute scale factor as average ('av') or maximum ('max') of peak ratios
+    Output:
+    ------------------
+    normAv : float
+        Scale factor computed as the average ratio between peak heights. Should be > 1,
+        otherwise the reference spectrum has weaker intensity than the one intended to scale up
+        """
+    plt.figure(figsize=(10,8))
+    if lb == None: lb = (xp.name, xpRef.name)
+    df, dfRef = xp.dfx[region], xpRef.dfx[region]
+
+    plt.plot(df.energy, df.counts, '-b', label=lb[0])
+    plt.plot(dfRef.energy, dfRef.counts, '-r', label=lb[1])
+
+    pe = find_and_plot_peaks(df, thres=thres, min_d=min_d, col='b')
+    pRef = find_and_plot_peaks(dfRef, thres=thres, min_d=min_d, col='r')
+    cosmetics_plot()
+
+    norm = dfRef.counts[pRef] / df.counts[pe]
+    if mode == 'av':
+        normAv = np.average(norm.dropna())
+        return normAv, norm
+    elif mode == 'max':
+        normMax = np.max(norm.dropna())
+        return normMax, norm
+        
 def scale_dfx(xp : XPS_experiment, scale_factor : float, inplace : bool = False):
     """Rescale xp.dfx for comparison with other experiment
     Returns whole XPS_experiment"""
@@ -48,7 +99,7 @@ def find_integration_limits(x, y, flag_plot = False, region : str = None):
     rmidx = abs(y[maxidx:] - np.min(y[maxidx:])).argmin() + maxidx
 
     if flag_plot:
-        plt.plot(x, y, 'b-', label=region.replace('_', ' '))
+        #plt.plot(x, y, 'b-', label=region.replace('_', ' '))
         ybase = plt.ylim()[0]
         ind = [maxidx, lmidx, rmidx]
         for i in ind:
@@ -109,7 +160,7 @@ def shirley_loop(x, y,
 def subtract_shirley_bg(xp : XPS_experiment, region : str, maxit : int = 10, lb : str = None) -> XPS_experiment:
     """Plot region and shirley background. Decorator for shirley_loop function"""
     x, y = xp.dfx[region].dropna().energy.values, xp.dfx[region].dropna().counts.values
-    col = plot_region(xp, region, lb=region).get_color()
+    col = plot_region(xp, region).get_color()
 
     find_integration_limits(x, y, flag_plot=True, region = region)
     ybg = shirley_loop(x, y, maxit = maxit)
@@ -155,7 +206,7 @@ def subtract_linear_bg (xp : XPS_experiment, region, lb : str = None) -> XPS_exp
     ybg = polyval([slope, intercept], x);
     plt.plot(x, ybg, '--', color=col, label='Linear Background')
 
-    dfnew = pd.DataFrame({'energy' : self.df[region].energy.dropna(), 'counts' : y - ybg})
+    dfnew = pd.DataFrame({'energy' : x, 'counts' : y - ybg})
     xpNew = deepcopy(xp)
     xpNew.dfx[region] = dfnew
     return xpNew
