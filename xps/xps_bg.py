@@ -19,47 +19,51 @@ def find_and_plot_peaks(df : pd.DataFrame, thres : float = 0.5, min_d : int = 10
 
     return peaks
 
-def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region : str = 'overview_', lb : tuple = None, mode : str = 'max', thres: float = 0.5, min_d: int = 10) -> float:
-    """Plot two spectra and compute average count ratio between main peaks for scaling
-    Input:
-    -----------------
-    df: pd.DataFrame
-        DataFrame containing the spectrum region to scale UP
-    dfRef: pd.DataFrame
-        Reference DataFrame to compare to
-    lb : tuple
-        Labels for legend
-    thres : float
-        Peak-finding count threshold, shouldn't be too low
-    min_d : int
-        Minimum separation between peaks
-    mode : str
-        Compute scale factor as average ('av') or maximum ('max') of peak ratios
-    Output:
-    ------------------
-    normAv : float
-        Scale factor computed as the average ratio between peak heights. Should be > 1,
-        otherwise the reference spectrum has weaker intensity than the one intended to scale up
-        """
-    plt.figure(figsize=(10,8))
+def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region : str = 'overview_', lb : tuple = None) -> float:
+    """Plot two spectra and normalize them to highest peak to valley factor
+        Input:
+        -----------------
+        df: pd.DataFrame
+            DataFrame containing the spectrum region to scale UP
+        dfRef: pd.DataFrame
+            Reference DataFrame to compare to
+        lb : tuple
+            Labels for legend
+        Output:
+        ------------------
+        norm : float
+            Scale factor computed as the average ratio between peak heights. Should be > 1,
+            otherwise the reference spectrum has weaker intensity than the one intended to scale up
+            """
+        from peakutils import indexes, baseline
+    fig, ax = plt.subplots(1, 2, figsize=(16, 8))
     if lb == None: lb = (xp.name, xpRef.name)
-    df, dfRef = xp.dfx[region], xpRef.dfx[region]
+    df, dfRef = xp.dfx[region].dropna(), xpRef.dfx[region].dropna()
 
-    plt.plot(df.energy, df.counts, '-b', label=lb[0])
-    plt.plot(dfRef.energy, dfRef.counts, '-r', label=lb[1])
+    ax[0].plot(df.energy, df.counts, '-b', label=lb[0])
+    ax[0].plot(dfRef.energy, dfRef.counts, '-r', label=lb[1] + ' (ref.)')
 
-    pe = find_and_plot_peaks(df, thres=thres, min_d=min_d, col='b')
-    pRef = find_and_plot_peaks(dfRef, thres=thres, min_d=min_d, col='r')
-    cosmetics_plot()
+    indmax = indexes(dfRef.counts.values, thres=0.99)[0] # Get only highest peak
+    indmin = np.argmin(dfRef.counts[indmax : indmax + 20]) # Get absolute minimum in near neighbourhood
+    ax[0].axhline(dfRef.counts[indmax], color='k')
+    ax[0].axhline(dfRef.counts[indmin], color='k')
 
-    norm = dfRef.counts[pRef] / df.counts[pe]
-    if mode == 'av':
-        normAv = np.average(norm.dropna())
-        return normAv, norm
-    elif mode == 'max':
-        normMax = np.max(norm.dropna())
-        return normMax, norm
-        
+    bl = baseline(df.counts)
+    ax[0].plot(df.energy, bl, '--b', label='Baseline of' + lb[0])
+    cosmetics_plot(ax = ax[0])
+    ax[0].set_title('Baseline and peak')
+
+    # Compute normalization factor
+    norm  = ( dfRef.counts[indmax] - dfRef.counts[indmin] ) / ( df.counts[indmax] - df.counts[indmin] )
+
+    y_scale = df.counts * norm - bl
+
+    ax[1].plot(df.energy, y_scale, '-b', label=lb[0])
+    ax[1].plot(dfRef.energy, dfRef.counts, '-r', label=lb[1]+ ' (ref.)')
+    cosmetics_plot(ax = ax[1])
+    ax[1].set_title('Scaling result')
+    return y_scale, norm
+
 def scale_dfx(xp : XPS_experiment, scale_factor : float, inplace : bool = False):
     """Rescale xp.dfx for comparison with other experiment
     Returns whole XPS_experiment"""
