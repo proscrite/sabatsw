@@ -9,11 +9,11 @@ from dataclasses import dataclass
 from xps.xps_import import XPS_experiment
 
 
-def plot_region(xp : XPS_experiment, region : str, lb : str = None):
+def plot_region(xp : XPS_experiment, region : str, lb : str = None, ax = None):
     """Quick region plotter"""
-    if lb == None: lb = xp.name + region
-
-    p1 = plt.plot(xp.dfx[region].energy, xp.dfx[region].counts, label=lb)
+    if lb == None: lb = xp.name + ', ' + region
+    if ax == None: ax = plt.gca()
+    p1 = ax.plot(xp.dfx[region].energy, xp.dfx[region].counts, label=lb)
     cosmetics_plot()
     return p1[0]
 
@@ -31,6 +31,23 @@ def gaussian_smooth(xp : XPS_experiment, region, sigma : int = 2) -> XPS_experim
     dfnew = pd.DataFrame({'energy' : xp.dfx[region].energy.dropna(), 'counts' : y})
     xp.dfx[region] = dfnew
     return xp
+
+def compare_areas(xp_ref : XPS_experiment, xp_sg : XPS_experiment, region : str,
+                  lb : str = None,  ax = None):
+    """Returns absolute and relative area in a region xp_sg and w.r.t. xp_ref"""
+    y_ref = xp_ref.dfx[region].dropna().counts
+    y_sg = xp_sg.dfx[region].dropna().counts
+
+    if ax == None: ax = plt.gca()
+    x = xp_sg.dfx[region].dropna().energy.values
+    step = x[0] - x[1]
+    area = np.trapz(y_sg, dx = step)
+    area_rel = area / np.trapz(y_ref, dx = step)
+
+    if lb == None: lb = xp_sg.name
+    ax.plot(x, y_sg, '-', label=lb)
+    cosmetics_plot()
+    return area_rel, area
 
 def gauss(x, *p):
     A, mu, sigma = p
@@ -102,7 +119,7 @@ def compute_gauss_area(fit, prefix):
     amp = fit.best_values[prefix+'amplitude']
     return amp * np.sqrt(np.pi/sigma)
 
-def fit_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : list = None, ax = None, flag_plot : bool = True):
+def fit_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : list = None, lb : str = None, ax = None, flag_plot : bool = True):
     """General method for fitting voigt model
     Input
     ----------
@@ -121,8 +138,8 @@ def fit_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : li
 
     x = xp.dfx[region].dropna().energy
     y = xp.dfx[region].dropna().counts
-    if ax == None: ax = plt.gca()
-    ax.plot(x, y, '-b', label='Data')
+
+    col = plot_region(xp, region, lb, ax).get_color()
 
     mod = PseudoVoigtModel(prefix='v_')
     if pars == None:
@@ -132,12 +149,13 @@ def fit_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : li
     fitv = mod.fit(y, pars, x=x)
 
     if flag_plot:
+        if ax == None : ax = plt.gca()
         ax.plot(x, fitv.best_fit, '--', label='Fit to single Voigt')
         ax.legend()
     return fitv
 
 def add_gauss_shoulder(xp : XPS_experiment, region : str, par_g : list, bounds_g: list,
-                       fitv = None, Ng : int = 1, ax = None, flag_plot : bool = True):
+                       fitv = None, Ng : int = 1, lb : str = None, ax = None, flag_plot : bool = True):
     """Add gaussian shoulder to fit
     Input
     ----------
@@ -157,7 +175,7 @@ def add_gauss_shoulder(xp : XPS_experiment, region : str, par_g : list, bounds_g
     x = xp.dfx[region].dropna().energy
     y = xp.dfx[region].dropna().counts
     if ax == None : ax = plt.gca()
-    ax.plot(x, y, '-b', label='Data')
+    col = plot_region(xp, region, lb, ax).get_color()
 
     gauss2 = GaussianModel(prefix='g'+str(Ng)+'_')
     pars = fitv.params
@@ -171,11 +189,85 @@ def add_gauss_shoulder(xp : XPS_experiment, region : str, par_g : list, bounds_g
     # print(fitvg.fit_report(min_correl=.5))
     if flag_plot:
         comps = fitvg.eval_components(x=x)
-#         a1, a0 = [compute_area(fitvg, prefix) for prefix in ['g_', 'v_']]
+        a1, a0 = [compute_gauss_area(fitvg, prefix) for prefix in ['g'+str(Ng)+'_', 'v_']]
 
         ax.plot(x, fitvg.best_fit, '-r', label = 'best fit')
-#         ax.plot(x, comps['v_'], 'g--', label = 'voigt component @ %.2f \nArea ref. '%fitvg.best_values['v_center'])
-        ax.plot(x, comps['g'+str(Ng)+'_'], 'y--', label = '1st gauss component @ %.2f \nArea =  '%(fitvg.best_values['g'+str(Ng)+'_center']))#, a1/a0))
+        ax.plot(x, comps['v_'], 'g--', label = 'voigt component @ %.2f \nArea ref. '%fitvg.best_values['v_center'])
+        ax.plot(x, comps['g'+str(Ng)+'_'], 'y--', label = '1st gauss component @ %.2f \nArea =  %.2f \nArea ref'%(fitvg.best_values['g'+str(Ng)+'_center'], a1/a0))
         ax.legend()
     cosmetics_plot()
     return fitvg
+
+def fit_double_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : list = None, sepPt : float = None,
+                     lb : str = None, ax = None, flag_plot : bool = True, DEBUG : bool = False):
+    """Fitting double voigt model
+    Input
+    ----------
+    xp : class XPS_experiment
+        XPS data
+    region : str
+        core level name
+    pars, bounds : list
+        initial guess of the fit parameters and bounds. If unspecified, guessed automatically
+    sepPt : float
+        separation point in energy between the two peaks. If unspecified guessed automatically
+    flag_plot, DEBUG : bool
+        flags to plot intermediate and final fit results
+    Returns
+    -----------
+    fitv : lmfit.model
+        fit result to Voigt model
+    """
+    from lmfit.models import PseudoVoigtModel
+
+    x = xp.dfx[region].dropna().energy
+    y = xp.dfx[region].dropna().counts
+    if sepPt == None: sepPt = find_separation_point(x, y)
+
+    x1 = x[x<sepPt].values
+    x2 = x[x>sepPt].values
+    y1 = y[x<sepPt].values
+    y2 = y[x>sepPt].values
+    if ax == None : ax = plt.gca()
+
+    col = plot_region(xp, region, lb=xp.name, ax=ax).get_color()
+
+    mod1 = PseudoVoigtModel(prefix='v1_')
+    mod2 = PseudoVoigtModel(prefix='v2_')
+    if pars == None:
+        pars1 = mod1.guess(y1, x=x1)
+        pars1['v1_sigma'].set(value=1) # Usually guessed wrong anyway
+        pars2 = mod2.guess(y2, x=x2)
+        pars2['v2_sigma'].set(value=1) # Usually guessed wrong anyway
+
+    mod = mod1 + mod2
+    pars = mod.make_params()
+    pars.update(pars1)
+    pars.update(pars2)
+    if DEBUG:
+        fit1 = mod1.fit(y1, x=x1, params=pars1)
+        fit2 = mod2.fit(y2, x=x2, params=pars2)
+        ax.plot(x1, fit1.best_fit, '--', label='Fit first Voigt')
+        ax.plot(x2, fit2.best_fit, '--', label='Fit second Voigt')
+
+    fitv = mod.fit(y, pars, x=x)
+
+    if flag_plot:
+        ax.plot(x, fitv.best_fit, '--', label='Fit to double Voigt')
+        ax.legend()
+
+    return fitv
+
+def find_separation_point(x : np.array, y : np.array, min_dist : int = 20,
+                          ax = None, DEBUG : bool = False) -> float:
+    """Autolocate separation point between two peaks for double fitting"""
+    peaks = [0, 0, 0]
+    thres = 0.8
+    while len(peaks) > 2:
+        peaks = peakutils.indexes(y, thres=thres, min_dist=min_dist)
+        thres += 0.01
+    if DEBUG:
+        if ax == None : ax = plt.gca()
+        ax.plot(x[peaks], y[peaks], '*', ms=10)
+        ax.axvline(x[peaks].sum()/2)
+    return x[peaks].sum()/2
