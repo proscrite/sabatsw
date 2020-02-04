@@ -20,22 +20,25 @@ def find_and_plot_peaks(df : pd.DataFrame, thres : float = 0.5, min_d : int = 10
     return peaks
 
 def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region : str = 'overview_', lb : tuple = None) -> float:
-    """Plot two spectra and normalize them to highest peak to valley factor
+    """Plot two spectra and compute average count ratio between main peaks for scaling
         Input:
         -----------------
-        df: pd.DataFrame
-            DataFrame containing the spectrum region to scale UP
-        dfRef: pd.DataFrame
-            Reference DataFrame to compare to
+        xp: XPS_experiment
+            Experiment containing the spectrum region to scale UP
+        xpRef: XPS_experiment
+            Reference spectrum to compare to
         lb : tuple
             Labels for legend
         Output:
         ------------------
-        norm : float
+        y_sc : array
+            scaled counts
+        normAv : float
             Scale factor computed as the average ratio between peak heights. Should be > 1,
             otherwise the reference spectrum has weaker intensity than the one intended to scale up
-            """
-        from peakutils import indexes, baseline
+        indmax : int
+            Index position of the highest peak"""
+    from peakutils import indexes, baseline
     fig, ax = plt.subplots(1, 2, figsize=(16, 8))
     if lb == None: lb = (xp.name, xpRef.name)
     df, dfRef = xp.dfx[region].dropna(), xpRef.dfx[region].dropna()
@@ -48,32 +51,65 @@ def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region :
     ax[0].axhline(dfRef.counts[indmax], color='k')
     ax[0].axhline(dfRef.counts[indmin], color='k')
 
-    bl = baseline(df.counts)
+    bl = baseline(df.counts, deg=5)
+    blr = baseline(dfRef.counts, deg=5)
     ax[0].plot(df.energy, bl, '--b', label='Baseline of' + lb[0])
+    ax[0].plot(dfRef.energy, blr, '--r', label='Baseline of' + lb[1])
+
     cosmetics_plot(ax = ax[0])
     ax[0].set_title('Baseline and peak')
 
     # Compute normalization factor
     norm  = ( dfRef.counts[indmax] - dfRef.counts[indmin] ) / ( df.counts[indmax] - df.counts[indmin] )
 
-    y_scale = df.counts * norm - bl
+    y_scale = (df.counts - bl) * norm
 
     ax[1].plot(df.energy, y_scale, '-b', label=lb[0])
-    ax[1].plot(dfRef.energy, dfRef.counts, '-r', label=lb[1]+ ' (ref.)')
+    ax[1].plot(dfRef.energy, (dfRef.counts - blr) , '-r', label=lb[1]+ ' (ref.)')
     cosmetics_plot(ax = ax[1])
     ax[1].set_title('Scaling result')
-    return y_scale, norm
+    return y_scale, norm, indmax
 
 def scale_dfx(xp : XPS_experiment, scale_factor : float, inplace : bool = False):
-    """Rescale xp.dfx for comparison with other experiment
+    """Rescale xp.dfx for comparison with other experiment and subtract baseline
     Returns whole XPS_experiment"""
+    from peakutils import baseline
+
     names = list(xp.dfx.columns.levels[0])
     dfnew = pd.DataFrame()
 
     frames = []
     for n in names:
-        x = xp.dfx[n].counts.apply(lambda c : c * scale_factor)
-        frames.append( pd.DataFrame([xp.dfx[n].energy, x]).T )
+        bl = baseline(xp.dfx[n].dropna().counts)
+        ybl = xp.dfx[n].dropna().counts - bl
+        ysc = ybl.apply(lambda c : c * scale_factor)
+        frames.append( pd.DataFrame([xp.dfx[n].energy, ysc]).T )
+    dfnew = pd.concat(frames, axis=1)
+
+    mi = pd.MultiIndex.from_product([names, np.array(['energy', 'counts'])])
+    mi.to_frame()
+    dfnew.columns = mi
+
+    if inplace:
+        xp.dfx = dfnew
+        return xp
+    else:
+        xpNew = deepcopy(xp)
+        xpNew.dfx = dfnew
+    return xpNew
+
+def normalise_dfx(xp : XPS_experiment, inplace : bool = False):
+    """Normalise spectrum counts to maximum peak at index position indmax"""
+    from peakutils import indexes
+    names = list(xp.dfx.columns.levels[0])
+    dfnew = pd.DataFrame()
+
+    frames = []
+    for n in names:
+        y =  xp.dfx[n].dropna().counts
+        ynorm = y.apply(lambda c : c / np.max(y))
+
+        frames.append( pd.DataFrame([xp.dfx[n].energy, ynorm]).T )
     dfnew = pd.concat(frames, axis=1)
 
     mi = pd.MultiIndex.from_product([names, np.array(['energy', 'counts'])])
