@@ -125,8 +125,7 @@ class XPS_experiment:
     date : str = None
     other_meta : str = None
 
-
-def xps_data_import(path : str, name : str = None, ) -> XPS_experiment:
+def xps_data_import(path : str, name : str = None, label : str = None) -> XPS_experiment:
     """Method to arrange a XPS_experiment data"""
     dfx = import_xps_df(path)
     delimiters = xy_region_delimiters(path)
@@ -140,5 +139,4 @@ def xps_data_import(path : str, name : str = None, ) -> XPS_experiment:
     da = re.search('\d+_', filename).group(0).replace('/', '').replace('_', '')
     date = re.sub('(\d{4})(\d{2})(\d{2})', r"\1.\2.\3", da, flags=re.DOTALL)
     other_meta = dir_name + filename.replace(da, '')
-
-    return XPS_experiment(dfx, delimiters, name, date, other_meta)
+    return XPS_experiment(dfx = dfx, delimiters = delimiters, name = name, label = label, date = date, other_meta = other_meta)
