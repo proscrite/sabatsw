@@ -4,6 +4,7 @@ xp = xps_data_import(path=path)
 xpRef = xps_data_import(path=pathRef)
 
 def test_scale_and_plot_spectra():
+    """If peaks are shifted wrt each other, then ratio_scaled_peaks is not exactly 1 but should be close enough"""
     region = 'overview'
     y_sc, scale_av, indmax = scale_and_plot_spectra(xp = xp, xpRef=xpRef, region=region, lb=('xp', 'ref'))
     ratio_scaled_peaks = xpRef.dfx[region].counts[indmax] / y_sc[indmax]
