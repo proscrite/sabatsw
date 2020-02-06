@@ -19,7 +19,7 @@ def find_and_plot_peaks(df : pd.DataFrame, thres : float = 0.5, min_d : int = 10
 
     return peaks
 
-def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region : str = 'overview_', lb : tuple = None) -> float:
+def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region : str = 'overview_', bl_deg : int = 5, lb : tuple = None) -> float:
     """Plot two spectra and compute average count ratio between main peaks for scaling
         Input:
         -----------------
@@ -48,13 +48,14 @@ def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region :
 
     indmax = indexes(dfRef.counts.values, thres=0.99)[0] # Get only highest peak
     indmin = np.argmin(dfRef.counts[indmax : indmax + 20]) # Get absolute minimum in near neighbourhood
-    ax[0].axhline(dfRef.counts[indmax], color='k')
-    ax[0].axhline(dfRef.counts[indmin], color='k')
+    ax[0].axhline(dfRef.counts[indmax], color='k', ls = '--')
+    ax[0].axhline(dfRef.counts[indmin], color='k', ls = '--')
+    ax[0].axvline(dfRef.energy[indmax], color='k', ls = '--')
 
-    bl = baseline(df.counts, deg=5)
-    blr = baseline(dfRef.counts, deg=5)
-    ax[0].plot(df.energy, bl, '--b', label='Baseline of' + lb[0])
-    ax[0].plot(dfRef.energy, blr, '--r', label='Baseline of' + lb[1])
+    bl = baseline(df.counts, deg=bl_deg)
+    blr = baseline(dfRef.counts, deg=bl_deg)
+    ax[0].plot(df.energy, bl, '--b', label='Baseline of  ' + lb[0])
+    ax[0].plot(dfRef.energy, blr, '--r', label='Baseline of ' + lb[1])
 
     cosmetics_plot(ax = ax[0])
     ax[0].set_title('Baseline and peak')
@@ -226,7 +227,7 @@ def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, max
     ybg1 = shirley_loop(x1, y1, maxit = maxit)
     ybg2 = shirley_loop(x2, y2, maxit = maxit)
 
-    plt.plot(x, np.append(ybg1, ybg2), label='Double shirley bg')
+    plt.plot(x, np.append(ybg1, ybg2), '--', color=col, label='Double shirley bg')
     y12 = np.append( y1 - ybg1, y2 - ybg2)
 
     dfnew = pd.DataFrame({'energy' : x, 'counts' : y12})
