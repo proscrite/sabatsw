@@ -32,22 +32,70 @@ def gaussian_smooth(xp : XPS_experiment, region, sigma : int = 2) -> XPS_experim
     xp.dfx[region] = dfnew
     return xp
 
+def flexible_integration_limits(xp : XPS_experiment, region : str, doublePeak : float = 0, flag_plot : bool = True) -> list:
+    """Autolocate limits for area integration.
+    doublePeak > 0 : second peak on the rhs of the main one
+    doublePeak < 0 : second peak on the lhs of the main one
+    doublePeak == 0 : no second peak
+    Returns:
+    --------
+    [maxidx, (maxidx2), lmidx(2), rmidx(2)]
+    Position index of [maxima, (second max), left minima, right minima]
+    (2) denotes from secondary peak"""
+
+    x = xp.dfx[region].dropna().energy
+    y = xp.dfx[region].dropna().counts
+    plt.plot(x, y, label=xp.name)
+    maxidx = abs(y - np.max(y)).idxmin()
+    lmidx = abs(y[0:maxidx] - np.min(y[0:maxidx])).idxmin()
+    rmidx = abs(y[maxidx:] - np.min(y[maxidx:])).idxmin() #+ maxidx
+
+    if doublePeak < 0:
+        maxidx2 = abs(y[:lmidx] - np.max(y[:lmidx])).idxmin()
+        lmidx2 = abs(y[:maxidx2] - np.min(y[:maxidx2])).idxmin()
+        ind = [maxidx, maxidx2, lmidx2, rmidx]
+    elif doublePeak > 0:
+        maxidx2 = abs(y[rmidx:] - np.max(y[rmidx:])).idxmin()
+        rmidx2 = abs(y[maxidx2:] - np.min(y[maxidx2:])).idxmin()
+        ind = [maxidx, maxidx2, lmidx, rmidx2]
+    else:
+        ind = [maxidx, lmidx, rmidx]
+
+    ybase = plt.ylim()[0]
+    for i in ind:
+        plt.vlines(x[i], ymin=ybase, ymax=y[i], linestyles='--')
+        plt.text(s='%.2f'%x[i], x = x[i], y = y[i])
+    cosmetics_plot()
+    return ind
+
 def compare_areas(xp_ref : XPS_experiment, xp_sg : XPS_experiment, region : str,
-                  lb : str = None,  ax = None):
-    """Returns absolute and relative area in a region xp_sg and w.r.t. xp_ref"""
+                  lmidx : int, rmidx : int, lb : str = None,  ax = None):
+    """Returns absolute and relative area in a region xp_sg and w.r.t. xp_ref
+    between indices lmidx and rmidx"""
     y_ref = xp_ref.dfx[region].dropna().counts
     y_sg = xp_sg.dfx[region].dropna().counts
 
     if ax == None: ax = plt.gca()
-    x = xp_sg.dfx[region].dropna().energy.values
+    x = xp_sg.dfx[region].dropna().energy
     step = x[0] - x[1]
-    area = np.trapz(y_sg, dx = step)
-    area_rel = area / np.trapz(y_ref, dx = step)
+
+    area = np.trapz(y_sg [ lmidx : rmidx ], dx = step)
+    area_rel = area / np.trapz(y_ref [ lmidx : rmidx ], dx = step)
 
     if lb == None: lb = xp_sg.name
     ax.plot(x, y_sg, '-', label=lb)
+    ax.fill_between(x [lmidx : rmidx], y1 = y_sg[lmidx], y2 = y_sg [lmidx : rmidx], alpha=0.3)
+
     cosmetics_plot()
     return area_rel, area
+
+def inset_rel_areas(area_rel : list, names : list) -> None:
+    ax = plt.gca()
+    axins = plt.axes([0.65, 0.5, 0.25, 0.3])
+    axins.bar(names, area_rel)
+    axins.set_ylabel('$A_{exp}/A_{ref}$', fontsize=12)
+    axins.tick_params(labelrotation=45)
+    ax.legend(loc='upper left')
 
 def gauss(x, *p):
     A, mu, sigma = p
