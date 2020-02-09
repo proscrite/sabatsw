@@ -125,7 +125,7 @@ def normalise_dfx(xp : XPS_experiment, inplace : bool = False):
         xpNew.dfx = dfnew
     return xpNew
 
-def find_integration_limits(x, y, flag_plot = False, region : str = None):
+def find_integration_limits(x, y, flag_plot = False, region : str = None, ax = None):
     """Utility to locate limits for shirley bg subtraction"""
     # Locate the biggest peak.
     maxidx = abs(y - np.max(y)).argmin()
@@ -140,12 +140,13 @@ def find_integration_limits(x, y, flag_plot = False, region : str = None):
     rmidx = abs(y[maxidx:] - np.min(y[maxidx:])).argmin() + maxidx
 
     if flag_plot:
-        #plt.plot(x, y, 'b-', label=region.replace('_', ' '))
-        ybase = plt.ylim()[0]
+        if ax == None: ax = plt.gca()
+        ybase = ax.get_ylim()[0]
+        if ybase < 0: ybase = 0
         ind = [maxidx, lmidx, rmidx]
         for i in ind:
-            plt.vlines(x = x[i], ymin=ybase, ymax=y[i], color='k')
-            plt.text(s= '%.2f'%x[i], x = x[i], y = y[i])
+            ax.vlines(x = x[i], ymin=ybase, ymax=y[i], linestyles='--', color='k')
+            ax.text(s= '%.2f'%x[i], x = x[i], y = y[i])
 
     return lmidx, rmidx
 
@@ -191,33 +192,36 @@ def shirley_loop(x, y,
             B = Bnew.copy()
         it += 1
 
+    assert it < maxit, "shirley_loop: Max iterations exceeded before convergence."
     if it >= maxit:
         print("specs.shirley_calculate: Max iterations exceeded before convergence.")
+        return 0
 #     if is_reversed:
 #         return ((yr + B)[::-1])
     else:
         return (yr + B)
 
-def subtract_shirley_bg(xp : XPS_experiment, region : str, maxit : int = 10, lb : str = None) -> XPS_experiment:
+def subtract_shirley_bg(xp : XPS_experiment, region : str, maxit : int = 10, lb : str = None, ax = None) -> XPS_experiment:
     """Plot region and shirley background. Decorator for shirley_loop function"""
     x, y = xp.dfx[region].dropna().energy.values, xp.dfx[region].dropna().counts.values
-    col = plot_region(xp, region).get_color()
+    col = plot_region(xp = xp, region = region, lb = lb, ax = ax).get_color()
 
-    find_integration_limits(x, y, flag_plot=True, region = region)
+    find_integration_limits(x, y, flag_plot=True, region = region, ax = ax)
     ybg = shirley_loop(x, y, maxit = maxit)
 
-    plt.plot(x, ybg, '--', color=col, label='Shirley Background')
-    cosmetics_plot()
+    if ax == None: ax = plt.gca()
+    ax.plot(x, ybg, '--', color=col, label='__nolabel__');
+    #cosmetics_plot(ax = ax)
 
     dfnew = pd.DataFrame({'energy' : x, 'counts' : y - ybg})
     xpNew = deepcopy(xp)
     xpNew.dfx[region] = dfnew
     return xpNew
 
-def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, maxit : int = 10, label : str = None) -> XPS_experiment:
+def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, maxit : int = 10, lb : str = None, ax = None) -> XPS_experiment:
     """Shirley bg subtraction for double peak"""
     x, y = xp.dfx[region].dropna().energy.values, xp.dfx[region].dropna().counts.values
-    col = plot_region(xp, region, lb=region).get_color()
+    col = plot_region(xp, region, ax = ax, lb=lb).get_color()
 
     y1 = y[ x > xlim ]
     x1 = x[ x > xlim ]
@@ -227,7 +231,8 @@ def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, max
     ybg1 = shirley_loop(x1, y1, maxit = maxit)
     ybg2 = shirley_loop(x2, y2, maxit = maxit)
 
-    plt.plot(x, np.append(ybg1, ybg2), '--', color=col, label='Double shirley bg')
+    if ax == None: ax = plt.gca()
+    ax.plot(x, np.append(ybg1, ybg2), '--', color=col, label='__nolabel__')
     y12 = np.append( y1 - ybg1, y2 - ybg2)
 
     dfnew = pd.DataFrame({'energy' : x, 'counts' : y12})
@@ -235,19 +240,64 @@ def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, max
     xpNew.dfx[region] = dfnew
     return xpNew
 
-def subtract_linear_bg (xp : XPS_experiment, region, lb : str = None) -> XPS_experiment:
+def subtract_linear_bg (xp : XPS_experiment, region, lb : str = None, ax = None) -> XPS_experiment:
     """Fit background to line and subtract from data"""
 
     from scipy import stats, polyval
     x = xp.dfx[region].dropna().energy.values
     y = xp.dfx[region].dropna().counts.values
-    col = plot_region(xp, region, lb=region).get_color()
+    col = plot_region(xp, region, lb=region, ax=ax).get_color()
 
-    slope, intercept, r, p_val, std_err = stats.linregress(x, y)
-    ybg = polyval([slope, intercept], x);
-    plt.plot(x, ybg, '--', color=col, label='Linear Background')
+    bl = peakutils.baseline(y, deg=1)
+    if ax == None: ax = plt.gca()
+    ax.plot(x, bl, '--', color=col, label='Linear Background')
 
-    dfnew = pd.DataFrame({'energy' : x, 'counts' : y - ybg})
+    dfnew = pd.DataFrame({'energy' : x, 'counts' : y - bl})
     xpNew = deepcopy(xp)
     xpNew.dfx[region] = dfnew
     return xpNew
+
+###########################   To use in nb with list of experiments   ###########################
+def bulk_bg_subtract(experiments : list, regions : list) -> list:
+    """Perform shirley bg subtraction on specified regions from several experiments
+    Plot results and store them new list of experiments"""
+    bg_exps = []
+    fig, ax = plt.subplots(len(regions),2, figsize=(12, 10 * len(regions)))
+    for xp in experiments:
+        xp_bg = deepcopy(xp)   # Store current state of xp
+        for i,r in enumerate(regions):
+    #         print(xp.name, r)
+            try:
+                xp_r = subtract_shirley_bg(xp, r, maxit=40, lb=xp.label, ax=ax[i][0]);    # Perform bg subtraction
+            except AssertionError:
+                print('Max iterations exceeded, subtract linear baseline')
+                xp_bg = subtract_linear_bg(xp, r, lb=xp.label, ax = ax[i][0])
+            plot_region(xp_r, r, ax=ax[i][1])
+            ax[i][0].set_title(r)
+            ax[i][1].set_title('Subtraction result')
+
+            cosmetics_plot(ax=ax[i][0], leg = False)
+            cosmetics_plot(ax=ax[i][1])
+
+            xp_bg.dfx[r] = xp_r.dfx[r]   # Store bg-subtracted region
+        bg_exps.append(xp_bg)   # Store bg-subtracted regions experiment
+    return bg_exps
+
+def region_bg_subtract(experiments : list, region = str) -> list:
+    """Inspect individual shirley bg subtraction for specified region from several experiments
+    Plot results and store them new list of experiments"""
+    bg_exps = []
+    fig, ax = plt.subplots(len(experiments), 2, figsize=(12, 12 * len(regions)))
+    for j, xp in enumerate(experiments):
+        try:
+            xp_bg = subtract_shirley_bg(xp, region, maxit=100, lb='__nolabel__', ax = ax[j][0])
+        except AssertionError:
+            print('Max iterations exceeded, subtract linear baseline')
+            xp_bg = subtract_linear_bg(xp, region, lb='__nolabel__', ax = ax[j][0])
+        bg_exps.append(xp_bg)
+        plot_region(xp_bg, region, ax=ax[j][1])
+        ax[j][0].set_title(xp.name)
+        ax[j][1].set_title('Subtraction result')
+        for i in range(2): cosmetics_plot(ax=ax[j][i])
+    fig.tight_layout()
+    return bg_exps
