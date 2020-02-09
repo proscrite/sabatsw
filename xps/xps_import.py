@@ -118,12 +118,13 @@ class XPS_experiment:
     other_meta : str = None
         other info contained in the filename
     """
-    dfx : pd.DataFrame
-    delimiters : tuple
+    path : str = None
+    delimiters : tuple = None
     name : str = None
     label : str = None
     date : str = None
     other_meta : str = None
+    dfx : pd.DataFrame = None
 
 def xps_data_import(path : str, name : str = None, label : str = None) -> XPS_experiment:
     """Method to arrange a XPS_experiment data"""
@@ -139,4 +140,49 @@ def xps_data_import(path : str, name : str = None, label : str = None) -> XPS_ex
     da = re.search('\d+_', filename).group(0).replace('/', '').replace('_', '')
     date = re.sub('(\d{4})(\d{2})(\d{2})', r"\1.\2.\3", da, flags=re.DOTALL)
     other_meta = dir_name + filename.replace(da, '')
-    return XPS_experiment(dfx = dfx, delimiters = delimiters, name = name, label = label, date = date, other_meta = other_meta)
+    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name, label = label, date = date, other_meta = other_meta)
+
+##############################   Processed files  ###########################
+
+def write_processed_xp(fout : str, xp : XPS_experiment):
+    """Save processed XPS experiment to file"""
+    import csv;
+    with open(fout, 'w') as fout:
+        writer = csv.writer(fout, delimiter='=')
+        for att in xp.__dict__.keys():   # Loop over class attributes except dfx (last)
+            if (att != 'dfx'):
+                writer.writerow([att, getattr(xp, att)])
+        writer.writerow(['dfx', ''])
+        xpc.dfx.to_csv(fout, sep=',')
+
+def read_processed_dfx(path, names) -> pd.DataFrame:
+    """Read and format dfx from processed file path"""
+    dfx = pd.read_csv(path, header=None, index_col=0, skiprows=9, engine='python')
+    index2 = np.array(['energy', 'counts'])
+    mi = pd.MultiIndex.from_product([names, index2], names=['range', 'properties'])
+    mi.to_frame()
+    dfx.columns = mi
+    dfx.index.name=None
+    return dfx
+
+def read_processed_xp(path) -> XPS_experiment:
+    """Read XPS_experiment class from file"""
+    from itertools import islice
+
+    with open(path) as fin:
+        head = list(islice(fin, 8))
+
+        delimiters = head[1].split('=')[1][:-1]
+        name = head[2].split('=')[1][:-1]
+        label = head[3].split('=')[1][:-1]
+        date = head[4].split('=')[1][:-1]
+        other_meta = head[5].split('=')[1][:-1]
+
+        names = head[7].split(',')[1:-1:2]
+        dfx = read_processed_dfx(path, names)
+    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name, label = label, date = date, other_meta = other_meta)
+
+def pickle_xp(file : str, xp : XPS_experiment):
+    import pickle
+    with open(file, 'wb') as out:
+        pickle.dump(xp, out, -1)
