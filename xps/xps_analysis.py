@@ -17,12 +17,12 @@ def plot_region(xp : XPS_experiment, region : str, lb : str = None, ax = None):
     cosmetics_plot()
     return p1[0]
 
-def cosmetics_plot(ax = None):
+def cosmetics_plot(ax = None, leg : bool = True):
     if ax == None: ax = plt.gca()
     ax.invert_xaxis()
-    ax.legend()
     ax.set_xlabel('Energy [eV]')
     ax.set_ylabel('CPS [A.U.]')
+    if leg: ax.legend()
 
 def gaussian_smooth(xp : XPS_experiment, region, sigma : int = 2) -> XPS_experiment:
     from scipy.ndimage.filters import gaussian_filter1d
