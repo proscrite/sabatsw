@@ -17,3 +17,13 @@ def test_normalise_dfx():
     xp_norm = normalise_dfx(xp, indmax)
     y_norm = xp_norm.dfx['overview'].counts
     assert np.max(y_norm) == 1,  "Incorrect normalization"
+
+def test_bulk_bg_subtract():
+    regions = ['In3d5/2', 'Sn3d5/2', 'C1s', 'O1s']
+    bg_exps = bulk_bg_subtract([xp], regions)  # Perform bg subtraction on several regions
+    xp_test = bulk_bg_subtract(bg_exps, regions)   # Repeat
+
+    no_bg = []          # Check whether no effect took place for some region
+    for r in regions:
+         no_bg.append((xp_test[0].dfx[r].counts == bg_exps[0].dfx[r].counts).any())
+    assert np.array(no_bg).any()
