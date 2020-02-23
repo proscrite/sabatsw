@@ -117,6 +117,8 @@ class XPS_experiment:
         experiment date as read in the filename
     other_meta : str = None
         other info contained in the filename
+    area : dict
+        dictionary with name of regions and integrated areas
     """
     path : str = None
     delimiters : tuple = None
@@ -125,6 +127,7 @@ class XPS_experiment:
     date : str = None
     other_meta : str = None
     dfx : pd.DataFrame = None
+    area : dict = None
 
 def xps_data_import(path : str, name : str = None, label : str = None) -> XPS_experiment:
     """Method to arrange a XPS_experiment data"""
@@ -144,20 +147,28 @@ def xps_data_import(path : str, name : str = None, label : str = None) -> XPS_ex
 
 ##############################   Processed files  ###########################
 
-def write_processed_xp(fout : str, xp : XPS_experiment):
+def write_processed_xp(filepath : str, xp : XPS_experiment):
     """Save processed XPS experiment to file"""
     import csv;
-    with open(fout, 'w') as fout:
+    with open(filepath, 'w') as fout:
         writer = csv.writer(fout, delimiter='=')
         for att in xp.__dict__.keys():   # Loop over class attributes except dfx (last)
             if (att != 'dfx'):
                 writer.writerow([att, getattr(xp, att)])
         writer.writerow(['dfx', ''])
-        xpc.dfx.to_csv(fout, sep=',')
+        xp.dfx.to_csv(fout, sep=',')
 
-def read_processed_dfx(path, names) -> pd.DataFrame:
+def read_dict_area(line : str):
+    """Read area dictionary from processed XPS file"""
+    line_area = line.split('=')[1].split(', ')
+    line_area[0] = line_area[0][1:]
+    line_area[-1] = line_area[-1][:-2]
+    area = dict((key.replace("'", ''), float(val)) for key, val in [word.split(':') for word in line_area])
+    return area
+
+def read_processed_dfx(path : str, names : list, skiprows0 : int = 9) -> pd.DataFrame:
     """Read and format dfx from processed file path"""
-    dfx = pd.read_csv(path, header=None, index_col=0, skiprows=9, engine='python')
+    dfx = pd.read_csv(path, header=None, index_col=0, skiprows=skiprows0, engine='python')
     index2 = np.array(['energy', 'counts'])
     mi = pd.MultiIndex.from_product([names, index2], names=['range', 'properties'])
     mi.to_frame()
@@ -170,7 +181,7 @@ def read_processed_xp(path) -> XPS_experiment:
     from itertools import islice
 
     with open(path) as fin:
-        head = list(islice(fin, 8))
+        head = list(islice(fin, 9))
 
         delimiters = head[1].split('=')[1][:-1]
         name = head[2].split('=')[1][:-1]
@@ -178,9 +189,14 @@ def read_processed_xp(path) -> XPS_experiment:
         date = head[4].split('=')[1][:-1]
         other_meta = head[5].split('=')[1][:-1]
 
-        names = head[7].split(',')[1:-1:2]
-        dfx = read_processed_dfx(path, names)
-    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name, label = label, date = date, other_meta = other_meta)
+        lindex = 7
+        if 'area' in head[6]:
+            area = read_dict_area(head[6])
+            lindex += 1
+        names = head[lindex].split(',')[1:-1:2]
+        dfx = read_processed_dfx(path, names, lindex+2)
+    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name,
+                          label = label, date = date, other_meta = other_meta, area = area)
 
 def pickle_xp(file : str, xp : XPS_experiment):
     import pickle
