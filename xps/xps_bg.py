@@ -19,6 +19,40 @@ def find_and_plot_peaks(df : pd.DataFrame, thres : float = 0.5, min_d : int = 10
 
     return peaks
 
+
+def find_shift(xp : XPS_experiment, xpRef : XPS_experiment, region : str) -> float:
+    """Compare maxima between two spectra and get energy shift"""
+    x = xp.dfx[region].dropna().energy
+    y = xp.dfx[region].dropna().counts.values
+    xRef = xpRef.dfx[region].dropna().energy
+    yRef = xpRef.dfx[region].dropna().counts.values
+
+    imax = np.argmax(y)
+    irmax = np.argmax(yRef)
+    shift = xRef[irmax] - x[imax]
+    return shift
+
+def align_dfx(xp : XPS_experiment, shift : float, inplace : bool = False) -> XPS_experiment:
+    """Apply energy shift to dfx and return xp aligned with reference"""
+    names = list(xp.dfx.columns.levels[0])
+    dfnew = pd.DataFrame()
+    frames = []
+    for n in names:
+        frames.append( pd.DataFrame([xp.dfx[n].energy + shift, xp.dfx[n].counts]).T )
+    dfnew = pd.concat(frames, axis=1)
+
+    mi = pd.MultiIndex.from_product([names, np.array(['energy', 'counts'])])
+    mi.to_frame()
+    dfnew.columns = mi
+
+    if inplace:
+        xp.dfx = dfnew
+        return xp
+    else:
+        xpNew = deepcopy(xp)
+        xpNew.dfx = dfnew
+    return xpNew
+
 def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region : str = 'overview_', bl_deg : int = 5, lb : tuple = None) -> float:
     """Plot two spectra and compute average count ratio between main peaks for scaling
         Input:
@@ -38,7 +72,7 @@ def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region :
             otherwise the reference spectrum has weaker intensity than the one intended to scale up
         indmax : int
             Index position of the highest peak"""
-    from peakutils import indexes, baseline
+
     fig, ax = plt.subplots(1, 2, figsize=(16, 8))
     if lb == None: lb = (xp.name, xpRef.name)
     df, dfRef = xp.dfx[region].dropna(), xpRef.dfx[region].dropna()
@@ -46,44 +80,36 @@ def scale_and_plot_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region :
     ax[0].plot(df.energy, df.counts, '-b', label=lb[0])
     ax[0].plot(dfRef.energy, dfRef.counts, '-r', label=lb[1] + ' (ref.)')
 
-    indmax = indexes(dfRef.counts.values, thres=0.99)[0] # Get only highest peak
-    indmin = np.argmin(dfRef.counts[indmax : indmax + 20]) # Get absolute minimum in near neighbourhood
+    indmax = np.argmax(dfRef.counts.values) # Get only highest peak
+    indmin = np.argmin(dfRef.counts[indmax : ]) # Get absolute minimum in near neighbourhood
     ax[0].axhline(dfRef.counts[indmax], color='k', ls = '--')
     ax[0].axhline(dfRef.counts[indmin], color='k', ls = '--')
     ax[0].axvline(dfRef.energy[indmax], color='k', ls = '--')
-
-    bl = baseline(df.counts, deg=bl_deg)
-    blr = baseline(dfRef.counts, deg=bl_deg)
-    ax[0].plot(df.energy, bl, '--b', label='Baseline of  ' + lb[0])
-    ax[0].plot(dfRef.energy, blr, '--r', label='Baseline of ' + lb[1])
 
     cosmetics_plot(ax = ax[0])
     ax[0].set_title('Baseline and peak')
 
     # Compute normalization factor
-    norm  = ( dfRef.counts[indmax] - dfRef.counts[indmin] ) / ( df.counts[indmax] - df.counts[indmin] )
-
-    y_scale = (df.counts - bl) * norm
+#     norm  = ( dfRef.counts[indmax] - dfRef.counts[indmin] ) / ( df.counts[indmax] - df.counts[indmin] )
+    norm = (np.max(dfRef.counts) - np.min(dfRef.counts)) / (np.max(df.counts) - np.min(df.counts))
+    y_scale = df.counts * norm
 
     ax[1].plot(df.energy, y_scale, '-b', label=lb[0])
-    ax[1].plot(dfRef.energy, (dfRef.counts - blr) , '-r', label=lb[1]+ ' (ref.)')
+    ax[1].plot(dfRef.energy, dfRef.counts , '-r', label=lb[1]+ ' (ref.)')
     cosmetics_plot(ax = ax[1])
     ax[1].set_title('Scaling result')
-    return y_scale, norm, indmax
+    return norm
 
 def scale_dfx(xp : XPS_experiment, scale_factor : float, inplace : bool = False):
     """Rescale xp.dfx for comparison with other experiment and subtract baseline
     Returns whole XPS_experiment"""
-    from peakutils import baseline
-
     names = list(xp.dfx.columns.levels[0])
     dfnew = pd.DataFrame()
 
     frames = []
     for n in names:
-        bl = baseline(xp.dfx[n].dropna().counts)
-        ybl = xp.dfx[n].dropna().counts - bl
-        ysc = ybl.apply(lambda c : c * scale_factor)
+        y = xp.dfx[n].dropna().counts
+        ysc = y.apply(lambda c : c * scale_factor)
         frames.append( pd.DataFrame([xp.dfx[n].energy, ysc]).T )
     dfnew = pd.concat(frames, axis=1)
 
@@ -132,8 +158,7 @@ def find_integration_limits(x, y, flag_plot = False, region : str = None, ax = N
 
     # It's possible that maxidx will be 0 or -1. If that is the case,
     # we can't use this algorithm, we return a zero background.
-    if maxidx == 0 or maxidx >= len(y) - 1:
-        print ("specs.shirley_calculate: Boundaries too high for algorithm: returning a zero background.")
+    assert maxidx == 0 or maxidx >= len(y) - 1:, "specs.shirley_calculate: Boundaries too high for algorithm: returning a zero background."
 
     # Locate the minima either side of maxidx.
     lmidx = abs(y[0:maxidx] - np.min(y[0:maxidx])).argmin()
@@ -287,7 +312,7 @@ def region_bg_subtract(experiments : list, region = str) -> list:
     """Inspect individual shirley bg subtraction for specified region from several experiments
     Plot results and store them new list of experiments"""
     bg_exps = []
-    fig, ax = plt.subplots(len(experiments), 2, figsize=(12, 12 * len(regions)))
+    fig, ax = plt.subplots(len(experiments), 2, figsize=(12, 10 * len(experiments)))
     for j, xp in enumerate(experiments):
         try:
             xp_bg = subtract_shirley_bg(xp, region, maxit=100, lb='__nolabel__', ax = ax[j][0])
