@@ -24,6 +24,39 @@ def cosmetics_plot(ax = None, leg : bool = True):
     ax.set_ylabel('CPS [A.U.]')
     if leg: ax.legend()
 
+def trim_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region, inplace : bool = False) -> XPS_experiment:
+    """Crop spectra with different bounds so that they coincide with xpRef
+    xpRef should have the shortest spectrum on both ends"""
+    e0 = xpRef.dfx[region].energy.head(1)
+    indrop = np.where(xp.dfx[region].energy.values > e0.values)[0]
+    dfnew = xp.dfx[region].dropna().drop(indrop).reset_index(drop=True)
+
+    if inplace:
+        xp.dfx[region] = dfnew
+        return xp
+    else:
+        xpNew = deepcopy(xp)
+        xpNew.dfx[region] = dfnew
+    return xpNew
+
+def crop_spectrum(xp : , region : str,
+                  eup : float = None, edw : float = None, inplace : bool = False):
+    """Limit region spectrum to upper (eup) and lower (edw) limits """
+    if eup == None: eup = xp.dfx[region].energy.head(1)
+    if edw == None: edw = xp.dfx[region].energy.tail(1)
+    dropup = np.where(xp.dfx[region].energy.values > eup)[0]
+    dfup = xp.dfx[region].dropna().drop(dropup).reset_index(drop=True)
+    dropdw = np.where(dfup.energy.values < edw)[0]
+    dfnew = dfup.drop(dropdw).reset_index(drop=True)
+
+    if inplace:
+        xp.dfx[region] = dfnew
+        return xp
+    else:
+        xpNew = deepcopy(xp)
+        xpNew.dfx[region] = dfnew
+        return xpNew
+        
 def gaussian_smooth(xp : XPS_experiment, region, sigma : int = 2) -> XPS_experiment:
     from scipy.ndimage.filters import gaussian_filter1d
 
@@ -69,7 +102,7 @@ def flexible_integration_limits(xp : XPS_experiment, region : str, doublePeak : 
     return ind
 
 def compare_areas(xp_ref : XPS_experiment, xp_sg : XPS_experiment, region : str,
-                  lmidx : int, rmidx : int, lb : str = None,  ax = None):
+                  lmidx : int, rmidx : int, lb : str = None,  ax = None, flag_fill : bool = False):
     """Returns absolute and relative area in a region xp_sg and w.r.t. xp_ref
     between indices lmidx and rmidx"""
     y_ref = xp_ref.dfx[region].dropna().counts
@@ -84,7 +117,8 @@ def compare_areas(xp_ref : XPS_experiment, xp_sg : XPS_experiment, region : str,
 
     if lb == None: lb = xp_sg.name
     ax.plot(x, y_sg, '-', label=lb)
-    ax.fill_between(x [lmidx : rmidx], y1 = y_sg[lmidx], y2 = y_sg [lmidx : rmidx], alpha=0.3)
+    if flag_fill:
+        ax.fill_between(x [lmidx : rmidx], y1 = y_sg[lmidx], y2 = y_sg [lmidx : rmidx], alpha=0.3)
 
     cosmetics_plot()
     return area_rel, area
@@ -198,7 +232,7 @@ def fit_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : li
 
     if flag_plot:
         if ax == None : ax = plt.gca()
-        ax.plot(x, fitv.best_fit, '--', label='Fit to single Voigt')
+        ax.plot(x, fitv.best_fit, '--', label='Voigt fit, $\chi^2_N$ = %i' %fitv.redchi)
         ax.legend()
     return fitv
 
@@ -239,9 +273,10 @@ def add_gauss_shoulder(xp : XPS_experiment, region : str, par_g : list, bounds_g
         comps = fitvg.eval_components(x=x)
         a1, a0 = [compute_gauss_area(fitvg, prefix) for prefix in ['g'+str(Ng)+'_', 'v_']]
 
-        ax.plot(x, fitvg.best_fit, '-r', label = 'best fit')
-        ax.plot(x, comps['v_'], 'g--', label = 'voigt component @ %.2f \nArea ref. '%fitvg.best_values['v_center'])
-        ax.plot(x, comps['g'+str(Ng)+'_'], 'y--', label = '1st gauss component @ %.2f \nArea =  %.2f \nArea ref'%(fitvg.best_values['g'+str(Ng)+'_center'], a1/a0))
+        ax.plot(x, fitvg.best_fit, '-r', label = 'best fit, $\chi^2_N$ = %i' %fitvg.redchi)
+        ax.plot(x, comps['v_'], '--m', label = 'voigt component @ %.2f ($A_{ref}$). '%fitvg.best_values['v_center'])
+        for n in range(1,Ng+1):
+            ax.plot(x, comps['g'+str(n)+'_'], 'dashdot', label = 'Gauss component @ %.2f \nArea =  %.2f $\\times A_{ref}$'%(fitvg.best_values['g'+str(n)+'_center'], a1/a0))
         ax.legend()
     cosmetics_plot()
     return fitvg
@@ -319,3 +354,22 @@ def find_separation_point(x : np.array, y : np.array, min_dist : int = 20,
         ax.plot(x[peaks], y[peaks], '*', ms=10)
         ax.axvline(x[peaks].sum()/2)
     return x[peaks].sum()/2
+
+def barplot_fit_fwhm(experiments : list, fit : np.array):
+    names = [xp.name for xp in experiments]
+
+    colv = plt.errorbar(x = fit[:,0], y = names, xerr=fit[:,1]/2, fmt='o', mew=2, label='Main component')[0].get_color()
+
+    dif = fit [:-1,0] - fit[1:,0]
+    for i, d in enumerate(dif) :
+        plt.annotate(s = '$\Delta E = $%.2f'%d, xy=(fit[i+1,0], 0.8 * (i+1)), color=colv)
+        plt.fill_betweenx(y=(i, i+1), x1=fit[i,0], x2=fit[i+1,0], alpha=0.3, color=colv)
+
+    if fit.shape[1] > 2:
+        colg = plt.errorbar(x = fit[:,2], y = names, xerr=fit[:,3]/2, fmt='o', mew=2,label='Shoulder')[0].get_color()
+        difg = fit [:-1,2] - fit[1:,2]
+        for i, d in enumerate(difg) :
+            plt.annotate(s = '$\Delta E = $%.2f'%d, xy=(fit[i+1,2], 0.8 * (i+1)), color=colg)
+            plt.fill_betweenx(y=(i, i+1), x1=fit[i,2], x2=fit[i+1,2], alpha=0.3, color=colg)
+    cosmetics_plot()
+    plt.ylabel('')
