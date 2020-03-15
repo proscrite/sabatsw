@@ -21,6 +21,11 @@ import invisible_cities.core .fit_functions  as     fitf
 from collections import Counter
 import collections
 
+def error_ratio(a, b, sa, sb):
+    sx2 = (1 / b**2) * (sa**2 + (a/b)**2 * sb**2)
+    return np.sqrt(sx2)
+
+
 ## File manipulation
 def read_TOM(ipath, name):
     file = os.path.join(ipath, name)
@@ -199,6 +204,48 @@ def load_LIVE_images(files : str)->DataFrame:
         DF.append(df)
     return DF
     #return IMG, DF
+
+
+def dict_ratio(d1, d2):
+    D = {}
+    for key, value in d1.items():
+        if d2[key] > 0:
+            D[key] = value / d2[key]
+        else:
+            D[key] = 1e+9
+    return D
+
+
+def dict_ratio_with_error(d1, d2, sd1, sd2, bcut=4):
+
+    a = d1[bcut]
+    b = d2[bcut]
+    r = a/b
+    print(a,b,r)
+    return r, error_ratio(a, b, sd1, sd2)
+
+
+def tom_signal_above_bkg(tom, bmax):
+    S = {}
+    for bkg in range(bmax+1):
+        S[bkg] = tom[tom > bkg].sum().sum()
+    return S
+
+def tom_ratio(tAlta, tBanda, bcut):
+    sAlta  = tom_signal_above_bkg(tAlta, bmax=bcut)
+    sBanda = tom_signal_above_bkg(tBanda, bmax=bcut)
+    return dict_ratio(sBanda, sAlta)
+
+
+def tom_ratio_with_error(tAlta, tBanda, bcut):
+    sAlta  = tom_signal_above_bkg(tAlta, bmax=bcut)
+    sBanda = tom_signal_above_bkg(tBanda, bmax=bcut)
+    sR = dict_ratio(sBanda, sAlta)
+    a = sAlta[bcut]
+    b = sBanda[bcut]
+    r = sR[bcut]
+    return r, error_ratio(b, a, np.sqrt(b), np.sqrt(a))
+
 
 def tom_I_max(TOMS):
     return [tom.mean().max() for tom in TOMS]

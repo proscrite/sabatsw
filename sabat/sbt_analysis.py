@@ -21,7 +21,13 @@ import invisible_cities.core .fit_functions  as     fitf
 from collections import Counter
 import collections
 
-## File manipulation
+def ratio_and_error_ratio(a, b, sa, sb):
+    sx2 = (1 / b**2) * (sa**2 + (a/b)**2 * sb**2)
+    return (a/b), np.sqrt(sx2)
+
+def prod_and_error_prod(a, b, sa, sb):
+    sx2 = b**2 * sa**2 + a**2 * sb**2
+    return a*b, np.sqrt(sx2)
 
 def error_ratio(a, b, sa, sb):
     sx2 = (1 / b**2) * (sa**2 + (a/b)**2 * sb**2)

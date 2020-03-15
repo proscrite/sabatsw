@@ -136,9 +136,9 @@ class Microscope:
     def optical_transmission(self)->float:
         A = self.numerical_aperture
         if A >= 1:
-            return 0.5
-        else :
-            return A / (2 * np.pi * np.sqrt(1 - A**2))
+            return 0.2
+        else:
+            return (1 - np.cos(A)) /2
 
     def filter_transmission(self)->float:
         return self.eff_dichroic * self.eff_filter
