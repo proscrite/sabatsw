@@ -3,6 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import peakutils
+import re
+
+from copy import deepcopy
 from scipy.optimize import curve_fit
 
 from dataclasses import dataclass
@@ -39,13 +42,15 @@ def trim_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region, inplace : 
         xpNew.dfx[region] = dfnew
     return xpNew
 
-def crop_spectrum(xp : , region : str,
+def crop_spectrum(xp : XPS_experiment, region : str,
                   eup : float = None, edw : float = None, inplace : bool = False):
     """Limit region spectrum to upper (eup) and lower (edw) limits """
-    if eup == None: eup = xp.dfx[region].energy.head(1)
-    if edw == None: edw = xp.dfx[region].energy.tail(1)
+    if eup == None: eup = xp.dfx[region].energy.head(1)[0]
+    if edw == None: edw = xp.dfx[region].dropna().energy.tail(1).values[0]
+
     dropup = np.where(xp.dfx[region].energy.values > eup)[0]
     dfup = xp.dfx[region].dropna().drop(dropup).reset_index(drop=True)
+
     dropdw = np.where(dfup.energy.values < edw)[0]
     dfnew = dfup.drop(dropdw).reset_index(drop=True)
 
@@ -56,7 +61,7 @@ def crop_spectrum(xp : , region : str,
         xpNew = deepcopy(xp)
         xpNew.dfx[region] = dfnew
         return xpNew
-        
+
 def gaussian_smooth(xp : XPS_experiment, region, sigma : int = 2) -> XPS_experiment:
     from scipy.ndimage.filters import gaussian_filter1d
 
@@ -201,7 +206,9 @@ def compute_gauss_area(fit, prefix):
     amp = fit.best_values[prefix+'amplitude']
     return amp * np.sqrt(np.pi/sigma)
 
-def fit_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : list = None, lb : str = None, ax = None, flag_plot : bool = True):
+def fit_voigt(xp : XPS_experiment, region : str,
+              pars : list = None, bounds : list = None, prefix : str = 'v_',
+              lb : str = None, ax = None, flag_plot : bool = True):
     """General method for fitting voigt model
     Input
     ----------
@@ -223,10 +230,11 @@ def fit_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : li
 
     col = plot_region(xp, region, lb, ax).get_color()
 
-    mod = PseudoVoigtModel(prefix='v_')
+    mod = PseudoVoigtModel(prefix=prefix)
     if pars == None:
         pars = mod.guess(y, x=x)
-        pars['v_sigma'].set(value=1) # Usually guessed wrong anyway
+        pars[prefix+'sigma'].set(value=1) # Usually guessed wrong anyway
+        pars[prefix+'fraction'].set(value=0.2, min=0.15, max=0.20)
 
     fitv = mod.fit(y, pars, x=x)
 
@@ -271,14 +279,13 @@ def add_gauss_shoulder(xp : XPS_experiment, region : str, par_g : list, bounds_g
     # print(fitvg.fit_report(min_correl=.5))
     if flag_plot:
         comps = fitvg.eval_components(x=x)
-        a1, a0 = [compute_gauss_area(fitvg, prefix) for prefix in ['g'+str(Ng)+'_', 'v_']]
 
         ax.plot(x, fitvg.best_fit, '-r', label = 'best fit, $\chi^2_N$ = %i' %fitvg.redchi)
-        ax.plot(x, comps['v_'], '--m', label = 'voigt component @ %.2f ($A_{ref}$). '%fitvg.best_values['v_center'])
-        for n in range(1,Ng+1):
-            ax.plot(x, comps['g'+str(n)+'_'], 'dashdot', label = 'Gauss component @ %.2f \nArea =  %.2f $\\times A_{ref}$'%(fitvg.best_values['g'+str(n)+'_center'], a1/a0))
+        for compo in comps:
+            colc = ax.plot(x, comps[compo], ls='dashdot', label = '%scenter: %.2f' %(compo, fitvg.best_values[compo+'center']) )[0].get_color()
+            ax.fill_between(x, y1 = 0, y2 = comps[compo], alpha=0.3, color=colc)
         ax.legend()
-    cosmetics_plot()
+    cosmetics_plot(ax=ax)
     return fitvg
 
 def fit_double_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : list = None, sepPt : float = None,
@@ -342,10 +349,10 @@ def fit_double_voigt(xp : XPS_experiment, region : str, pars : list = None, boun
     return fitv
 
 def find_separation_point(x : np.array, y : np.array, min_dist : int = 20,
-                          ax = None, DEBUG : bool = False) -> float:
+                          thres0 :float = 0.5, ax = None, DEBUG : bool = False) -> float:
     """Autolocate separation point between two peaks for double fitting"""
     peaks = [0, 0, 0]
-    thres = 0.8
+    thres = thres0
     while len(peaks) > 2:
         peaks = peakutils.indexes(y, thres=thres, min_dist=min_dist)
         thres += 0.01
@@ -354,6 +361,137 @@ def find_separation_point(x : np.array, y : np.array, min_dist : int = 20,
         ax.plot(x[peaks], y[peaks], '*', ms=10)
         ax.axvline(x[peaks].sum()/2)
     return x[peaks].sum()/2
+
+def check_pars_amplitud(pars, prefix : str, x : np.array, y : np.array):
+    if pars[prefix + 'amplitude'] < 0 :
+        amp = y[np.where(x == pars[prefix + 'center'].value)[0][0]]
+        pars[prefix + 'amplitude'].set(value=amp)
+    return pars
+
+def fit_double_shouldered_voigt(xp : XPS_experiment, region : str, par_g1 : list, bound_g1 : list,
+                               par_g2 : list, bound_g2 : list, lb : str = None,
+                                ax = None, flag_plot : bool = True) -> tuple:
+
+    x = xp.dfx[region].dropna().energy
+    y = xp.dfx[region].dropna().counts
+    ### Separate two peaks ###
+    sepPt = find_separation_point(x, y)
+    x1 = x[x<sepPt].values
+    x2 = x[x>sepPt].values
+    y1 = y[x<sepPt].values
+    y2 = y[x>sepPt].values
+
+    ### Set and guess main (voigt) components  ####
+    vo1 = PseudoVoigtModel(prefix='v1_')
+    pars1 = vo1.guess(y1, x=x1)
+    vo2 = PseudoVoigtModel(prefix='v2_')
+    pars2 = vo2.guess(y2, x=x2)
+    pars1['v1_sigma'].set(value=1) # Usually guessed wrong anyway
+    pars1['v1_fraction'].set(value=0.15, min=0.15, max=0.2)
+    pars2['v2_sigma'].set(value=1) # Usually guessed wrong anyway
+    pars2['v2_fraction'].set(value=0.15, min=0.15, max=0.2)
+
+    ### Set gaussian shoulders ###
+    gauss1 = GaussianModel(prefix='g1_')
+    pars1.update(gauss1.make_params())
+
+    gauss2 = GaussianModel(prefix='g2_')
+    pars2.update(gauss2.make_params())
+    mod1 = vo1 + gauss1
+    mod2 = vo2 + gauss2
+
+    for k,p,b in zip(gauss1.param_names, par_g1, bounds_g1):
+        pars1[k].set(value=p, min=b[0], max=b[1])
+
+    for k,p,b in zip(gauss2.param_names, par_g2, bounds_g2):
+        pars2[k].set(value=p, min=b[0], max=b[1])
+
+    fitvg1 = mod1.fit(y1, pars1, x=x1)
+    fitvg2 = mod2.fit(y2, pars2, x=x2)
+
+    if ax == None: ax = plt.gca()
+    col = plot_region(xp, region, lb, ax).get_color()
+    comps1 = fitvg1.eval_components(x=x1)
+    ax.plot(x1, fitvg1.best_fit, '-r', label = 'best fit, $\chi^2_N$ = %i' %fitvg1.redchi)
+    for compo in comps1:
+        colc = ax.plot(x1, comps1[compo], ls='dashdot', label = '%scenter: %.2f' %(compo, fitvg1.best_values[compo+'center']) )[0].get_color()
+        ax.fill_between(x1, y1 = 0, y2 = comps1[compo], alpha=0.3, color=colc)
+
+    comps2 = fitvg2.eval_components(x=x2)
+    ax.plot(x2, fitvg2.best_fit, '-', label = 'best fit, $\chi^2_N$ = %i' %fitvg2.redchi)
+    for compo in comps2:
+        colc = ax.plot(x2, comps2[compo], ls='dashdot', label = '%scenter: %.2f' %(compo, fitvg2.best_values[compo+'center']) )[0].get_color()
+        ax.fill_between(x2, y1 = 0, y2 = comps2[compo], alpha=0.3, color=colc)
+
+    ax.legend()
+    return fitvg1, fitvg2
+
+############# Stoichiometry and fit table utilities  ####################
+
+def make_header(num : list, denom : list):
+    head = 'Experiment\t'
+    for n, d in zip(num, denom):
+        cln = re.search(r'\d+', n).span()[0]
+        cld = re.search(r'\d+', d).span()[0]
+        head += n[:cln] + '/' + d[:cld] + '\t'
+    print(head)
+
+def regionPairs2numDenom(pairs : tuple):
+    """Reshape a tuple of region pairs (ex. N/C, Br/O)
+    into (num, denom) tuple (ex. ('N1s', 'C1s'), ('Br3p', 'O1s'))"""
+    transpose = np.array(pairs).T
+    assert transpose.shape[0] == 2, "Passed tuple has incorrect shape"
+    num, denom = transpose
+    return num, denom
+
+def make_stoichometry_table(exps : list, num : list, denom : list):
+    """Print stoichiometry table of the experiments exps at the regions in num/denom
+    Example: table_print(oxid_exps, ('N1s', 'C1s'), ('Br3p', 'O1s'))
+    will print the stoichiometry N/C, Br/O for the passed experiments"""
+    make_header(num = num, denom = denom)
+#     print('Experiment, ' + )
+    for i, xp in enumerate(exps):
+        row = xp.name + '\t'
+        for i, j in zip (num, denom):
+            row += ('%.2f\t ' %(xp.area[i]/xp.area[j]))
+        print(row )
+
+def component_areas(fit, x : np.array = None) -> tuple:
+    """Numerical integration of area components of lmfit.result
+    Arguments:
+    fit : lmfit.Model.result
+    x : np.array
+        Independendt variable, if unspecified, dx = 1 for numerical integration
+    Returns:
+    rel_areas : dict
+        Component areas normalized to total sum
+    areas : dict
+        keys are component prefixes and values the integrated areas"""
+    if x == None: dx = 1
+    else: dx = x[0] - x[1]
+
+    areas, rel_areas = {}, {}
+    for key, val in zip(fit.eval_components().keys(), fit.eval_components().values()):
+        areas.update({key+'area' : np.trapz(val, dx = dx)})
+    for key, val in zip(areas.keys(), areas.values()):
+        rel_areas.update({key : val/sum(areas.values())})
+
+    return rel_areas, areas
+
+def make_fit_table(fit, area : dict):
+    """Print a table with fit results and relative areas dict"""
+    par_table = ['center', 'fwhm', 'area']
+    head = 'component \t'
+    for par in par_table: head += '%s\t'%par
+    print(head)
+
+    for i, comp in enumerate(fit.components):
+        pref = comp.prefix
+        line = pref + '\t\t'
+        for par in par_table[:-1]:
+            line += '%.2f \t'%fit.values[pref + par]
+        line += '%.2f \t'%area[pref+'area']
+        print(line)
 
 def barplot_fit_fwhm(experiments : list, fit : np.array):
     names = [xp.name for xp in experiments]
