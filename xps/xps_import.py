@@ -189,14 +189,15 @@ def read_processed_xp(path) -> XPS_experiment:
         date = head[4].split('=')[1][:-1]
         other_meta = head[5].split('=')[1][:-1]
 
-        lindex = 7
-        if 'area' in head[6]:
+        llindex = 8
+        if len(head[6]) > 6:
             area = read_dict_area(head[6])
-            lindex += 1
+        else: area = None
         names = head[lindex].split(',')[1:-1:2]
         dfx = read_processed_dfx(path, names, lindex+2)
+
     return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name,
-                          label = label, date = date, other_meta = other_meta, area = area)
+                                  label = label, date = date, other_meta = other_meta, area = area)
 
 def pickle_xp(file : str, xp : XPS_experiment):
     import pickle
