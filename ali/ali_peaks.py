@@ -13,55 +13,53 @@ from dataclasses import dataclass
 
 from ali.ali_sw import load_raw_ali_df
 
+def findTroughsFast(dfRaw) -> np.array:
+    """Faster trough-finding routine based on dataframe entry 'valve' = on/off"""
+
+    tr0 = np.where(dfRaw['valve'] == 1)[0]
+    tr1 = tr0[np.where(tr0[1:] - tr0[:-1] > 1)[0]] - 1 # Several consecutive entries may have 'valve' on, pick only the first (darum -1) of each set
+    troughs = np.append(tr1, tr0[len(tr0)-1])  # The last peak must be included manually (can never fulfill the previous condition)
+
+    return troughs
+
+def extractDfPeaks(dfRaw : pd.DataFrame, troughs : np.array, peakLength : int = 0, full : bool = True) -> pd.DataFrame :
+    """Transform dfpRaw into matrix and dfPeaks
+    Parameters:
+    peakLengthCut : int
+        Index slice size per peak. If no value is given, computed as minimum
+        distance between peaks."""
+
+    if full:  #In this case import whole peak by looping
+        m0 = []
+        for i, t in enumerate(troughs):
+            if i < len(troughs) - 1:
+                m0.append(dfRaw.p_chamber[t : troughs[i+1]].values)
+
+        m0.append(dfRaw.p_chamber[t :].values)
+        dfpeak = pd.DataFrame(list(map(np.ravel, m0))).transpose()
+        dfpeak.columns = ['pulse'+str(i) for i in range(len(troughs))]
+
+    else:
+        if peakLength == 0:
+            peakLength = int(np.min(troughs[1:] - troughs[:-1]))
+
+        lenP = len(dfRaw.p_chamber)
+        troughs = troughs[lenP - troughs > peakLength] # exclude peaks in the end with too short length
+
+        npeaks = troughs.shape[0]
+        indices_offset = np.repeat(np.arange(peakLength), npeaks).reshape(peakLength, npeaks)
+
+        dfpeak = pd.DataFrame(dfRaw.p_chamber.values[indices_offset + troughs])
+        dfpeak.columns = ['pulse'+str(i) for i in range(len(troughs))]
+
+    return dfpeak
+
 def process_dfRaw_peaks(path : str, peakLength : int = 0) -> pd.DataFrame:
     """Method to process ALI raw df into peak df
     Parameters:
     peakLengthCut : int
         Index slice size per peak. If no value is given, computed as minimum
         distance between peaks."""
-
-    def findTroughsFast(dfRaw) -> np.array:
-        """Faster trough-finding routine based on dataframe entry 'valve' = on/off"""
-
-        tr0 = np.where(dfRaw['valve'] == 1)[0]
-        tr1 = tr0[np.where(tr0[1:] - tr0[:-1] > 1)[0]] # Several consecutive entries may have 'valve' on, pick only the last of each set
-        troughs = np.append(tr1, tr0[len(tr0)-1])  # The last peak must be included manually (can never fulfill the previous condition)
-
-        return troughs
-
-    def extractDfPeaks(dfRaw : pd.DataFrame, troughs : np.array, peakLength : int = 0, full : bool = False) -> pd.DataFrame :
-        """Transform dfpRaw into matrix and dfPeaks
-        Parameters:
-        peakLengthCut : int
-            Index slice size per peak. If no value is given, computed as minimum
-            distance between peaks."""
-
-        if full:  #In this case import whole peak by looping
-            m0 = []
-            for i, t in enumerate(troughs):
-                if i < len(troughs) - 1:
-                    m0.append(dfRaw.p_chamber[t : troughs[i+1]].values)
-
-            m0.append(dfRaw.p_chamber[t :].values)
-            dfpeak = pd.DataFrame(list(map(np.ravel, m0))).transpose()
-            dfpeak.columns = ['peak'+str(i) for i in range(len(troughs))]
-
-        else:
-            if peakLength == 0:
-                peakLength = int(np.min(troughs[1:] - troughs[:-1]))
-
-            lenP = len(dfRaw.p_chamber)
-            troughs = troughs[lenP - troughs > peakLength] # exclude peaks in the end with too short length
-
-            npeaks = troughs.shape[0]
-            indices_offset = np.repeat(np.arange(peakLength), npeaks).reshape(peakLength, npeaks)
-
-            dfpeak = pd.DataFrame(dfRaw.p_chamber.values[indices_offset + troughs])
-            dfpeak.columns = ['peak'+str(i) for i in range(len(troughs))]
-
-        return dfpeak
-
-    #### Main ####
 
     dfRaw = load_raw_ali_df(path)
     troughs = findTroughsFast(dfRaw)
@@ -80,6 +78,46 @@ def avCurves(dfp : pd.DataFrame):
 
     dfResidue = av_p.reshape(len(av_p),1) - dfp
     return av_p, sd_p, dfResidue
+
+def thumbnailPulses (dfp : pd.DataFrame, figw : int = 20, figh : int = 20):
+    """Plot a thumbnail mosaic of the pulses in dfp
+    Ncol and Nrows are automatically computed from the sqrt of Npeaks"""
+
+    Npeaks = len(dfp.columns)
+    Ncol = int(np.floor(np.sqrt(Npeaks)))
+    Nrow = Ncol + 1
+    Nrow, Ncol, Npeaks
+    fig, ax = plt.subplots(Nrow, Ncol, figsize=(figw, figh))
+    x = dfp.index.values
+
+    for i, r in enumerate(dfp.columns):
+        j = i//(Nrow-1)
+        k = i%Ncol
+
+        y = dfp[r].values
+
+        ax[j,k].plot(x, y, '-')
+        ax[j,k].set_yscale('log')
+        ax[j,k].set_xticks([])
+        ax[j,k].set_yticks([])
+    return ax
+
+def cosmetics_aliplot(ax = None):
+    if ax == None: ax = plt.gca()
+    ax.set_yscale('log')
+    ax.set_ylabel('$p_{chamber}$ [mbar]')
+    ax.set_xlabel('$t$ [s]')
+    ax.legend()
+
+def overplot_every_N_pulses(dfp : pd.DataFrame, every : int = 20, ax = None):
+    Npeaks = len(dfp.columns)
+    x = dfp.index.values/100
+
+    if ax == None: ax = plt.gca()
+    for i in dfp.iloc[:, ::every]:
+        ax.plot(x, dfp[i], label=i)
+    cosmetics_aliplot()
+    return ax
 
 def plotResiduesDistribution(dfp : pd.DataFrame, nsigma : int = 2) -> list:
     """Plot and fit to gaussian the total residuals (integrated over whole time)
@@ -113,7 +151,8 @@ def plotResiduesDistribution(dfp : pd.DataFrame, nsigma : int = 2) -> list:
 
     return ['peak'+str(i) for i in peaksID]
 
-def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 2, ax = None, color = 'b', lb : str = ''):
+def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 1,
+ ax = None, lb : str = '', lb2 : str = ''):
     """Plot average curve profile and the peaks with residuals larger than the specified Confidence Level
     Parameters:
     flag_p: bool
@@ -136,16 +175,11 @@ def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 
         for p in peaksID:
             ax.plot(dfp.index/sc, dfp[p].values, label = p)
 
-    ax.plot(dfp.index/sc, av_p, color, label = lb)
-    ax.fill_between(dfp.index/sc, av_p-sd_p, av_p+sd_p, color=color, alpha=0.3)
+    color = ax.plot(dfp.index/sc, av_p, label = lb)[0].get_color()
+    ax.fill_between(dfp.index/sc, av_p-nsigma*sd_p, av_p+nsigma*sd_p, color=color, alpha=0.3, label=lb2)
 
-    ax.legend(loc='upper right')
-    ax.set_yscale('log')
-    ax.set_xlabel('Time [s]')
-    ax.set_ylabel('Pressure [mbar]')
-    plt.gcf().set_figwidth(12)
-    plt.gcf().set_figheight(12)
-
+    cosmetics_aliplot()
+    return ax
 
 def polishDfPeak(dfp, nsigma : int = 2) -> pd.DataFrame:
     """Drop peaks with total residual lying outside of the specified confidence interval
