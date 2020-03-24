@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 import glob
 import os
@@ -54,7 +55,7 @@ def extractDfPeaks(dfRaw : pd.DataFrame, troughs : np.array, peakLength : int = 
 
     return dfpeak
 
-def process_dfRaw_peaks(path : str, peakLength : int = 0) -> pd.DataFrame:
+def process_dfRaw_peaks(path : str, peakLength : int = 0, full : bool = True) -> pd.DataFrame:
     """Method to process ALI raw df into peak df
     Parameters:
     peakLengthCut : int
@@ -63,7 +64,7 @@ def process_dfRaw_peaks(path : str, peakLength : int = 0) -> pd.DataFrame:
 
     dfRaw = load_raw_ali_df(path)
     troughs = findTroughsFast(dfRaw)
-    dfpeak = extractDfPeaks(dfRaw, troughs, peakLength = peakLength)
+    dfpeak = extractDfPeaks(dfRaw, troughs, peakLength = peakLength, full = full)
 
     return dfpeak
 
