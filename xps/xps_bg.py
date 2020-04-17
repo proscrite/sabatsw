@@ -127,7 +127,7 @@ def scale_dfx(xp : XPS_experiment, scale_factor : float, inplace : bool = False)
 
 def normalise_dfx(xp : XPS_experiment, inplace : bool = False):
     """Normalise spectrum counts to maximum peak at index position indmax"""
-    from peakutils import indexes
+
     names = list(xp.dfx.columns.levels[0])
     dfnew = pd.DataFrame()
 
@@ -250,9 +250,10 @@ def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, max
     """Shirley bg subtraction for double peak"""
     x, y = xp.dfx[region].dropna().energy.values, xp.dfx[region].dropna().counts.values
     col = plot_region(xp, region, ax = ax, lb=lb).get_color()
-
-    y1 = y[ x > xlim ]
-    x1 = x[ x > xlim ]
+    if xlim == None: xlim = find_separation_point(x, y)
+    
+    y1 = y[ x >= xlim ]
+    x1 = x[ x >= xlim ]
     y2 = y[ x <= xlim ]
     x2 = x[ x <= xlim ]
 
@@ -260,8 +261,12 @@ def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, max
     ybg2 = shirley_loop(x2, y2, maxit = maxit, flag_plot=flag_plot, ax = ax)
 
     if ax == None: ax = plt.gca()
-    ax.plot(x, np.append(ybg1, ybg2), '--', color=col, label='__nolabel__')
-    y12 = np.append( y1 - ybg1, y2 - ybg2)
+    ybg = np.append(np.append(ybg1[:-1], np.average([ybg1[-1], ybg2[0]])), ybg2[1:] )
+    if ybg.shape != x.shape:         # This might happen if xlim is not in x (when the spectra have been shifted f.ex.)
+        ybg = np.append(ybg1, ybg2 )
+
+    ax.plot(x, ybg, '--', color=col, label='__nolabel__')
+    y12 = y - ybg
 
     dfnew = pd.DataFrame({'energy' : x, 'counts' : y12})
     xpNew = deepcopy(xp)
@@ -285,12 +290,61 @@ def subtract_linear_bg (xp : XPS_experiment, region, lb : str = None, ax = None)
     xpNew.dfx[region] = dfnew
     return xpNew
 
+
+######## Factoring Background functions #########
+class XPBackground(object):
+    @staticmethod
+    def bg_handler(self, xp, region,  *args, **kwargs):
+        x = xp.dfx[region].dropna().energy.values
+        y = xp.dfx[region].dropna().counts.values
+        return x, y
+
+    def edit_xp(self, xp, region, x, y, ybg, ax = None):
+        if ax == None: ax = plt.gca()
+        col = plot_region(xp, region, lb=region, ax=ax).get_color()
+        ax.plot(x, ybg, '--', color=col, label='__nolabel__')
+        cosmetics_plot(ax=ax)
+
+        dfnew = pd.DataFrame({'energy' : x, 'counts' : y - ybg})
+        xpNew = deepcopy(xp)
+        xpNew.dfx[region] = dfnew
+        return xpNew
+
+    def linear(self, xp, region, *args, **kwargs):
+        x, y = self.bg_handler(self, xp, region, *args, **kwargs)
+
+        ybg = peakutils.baseline(y, deg=1)
+        return self.edit_xp(xp, region, x, y, ybg)
+
+    def shirley(self, xp, region, maxit=40, **kwargs):
+        kwargs['maxit'] = maxit
+        x,y = self.bg_handler(self, xp, region, **kwargs)
+        ybg = shirley_loop(x,y, **kwargs)
+        return self.edit_xp(xp, region, x, y, ybg)
+
+    def doubleShirley(self, xp, region, xlim, maxit=40, **kwargs):
+        x, y = self.bg_handler(self, xp, region, **kwargs)
+        y1 = y[ x >= xlim ]
+        x1 = x[ x >= xlim ]
+        y2 = y[ x <= xlim ]
+        x2 = x[ x <= xlim ]
+
+        ybg1 = shirley_loop(x1, y1, maxit = maxit)#, flag_plot=flag_plot, ax = ax)
+        ybg2 = shirley_loop(x2, y2, maxit = maxit)#, flag_plot=flag_plot, ax = ax)
+        ybg = np.append(np.append(ybg1[:-1], np.average([ybg1[-1], ybg2[0]])), ybg2[1:] )
+        return self.edit_xp(xp, region, x, y, ybg, **kwargs)
+
+## Usage example: #
+# fig, ax = plt.subplots(2)
+# bg2 = XPBackground().doubleShirley(xp=trim_exps[0], region='overview_', xlim = 346, maxit=50, ax=ax[0])
+# bglin = XPBackground().linear(xp=trim_exps[0], region='overview_', ax=ax[1])
+
 ###########################   To use in nb with list of experiments   ###########################
 def bulk_bg_subtract(experiments : list, regions : list) -> list:
     """Perform shirley bg subtraction on specified regions from several experiments
     Plot results and store them new list of experiments"""
     bg_exps = []
-    fig, ax = plt.subplots(len(regions),2, figsize=(12, 10 * len(regions)))
+    fig, ax = plt.subplots(len(regions),2, figsize=(12, 6 * len(regions)))
     for xp in experiments:
         xp_bg = deepcopy(xp)   # Store current state of xp
         for i,r in enumerate(regions):
@@ -315,7 +369,7 @@ def region_bg_subtract(experiments : list, region = str) -> list:
     """Inspect individual shirley bg subtraction for specified region from several experiments
     Plot results and store them new list of experiments"""
     bg_exps = []
-    fig, ax = plt.subplots(len(experiments), 2, figsize=(12, 10 * len(experiments)))
+    fig, ax = plt.subplots(len(experiments), 2, figsize=(12, 6 * len(experiments)))
     for j, xp in enumerate(experiments):
         try:
             xp_bg = subtract_shirley_bg(xp, region, maxit=100, lb='__nolabel__', ax = ax[j][0])
@@ -330,11 +384,11 @@ def region_bg_subtract(experiments : list, region = str) -> list:
     fig.tight_layout()
     return bg_exps
 
-def region_2bg_subtract(experiments : list, region = str, xlim : float, flag_plot : bool = True) -> list:
+def region_2bg_subtract(experiments : list, region : str, xlim : float, flag_plot : bool = True) -> list:
     """Inspect double shirley bg subtraction for specified region from several experiments
     Plot results and store them new list of experiments"""
     bg_exps = []
-    fig, ax = plt.subplots(len(experiments), 2, figsize=(12, 10 * len(experiments)))
+    fig, ax = plt.subplots(len(experiments), 2, figsize=(12, 6 * len(experiments)))
     for j, xp in enumerate(experiments):
         try:
             xp_bg = subtract_double_shirley(xp, region, xlim=xlim, maxit=100, lb=xp.name, flag_plot=flag_plot, ax = ax[j][0])

@@ -189,7 +189,7 @@ def read_processed_xp(path) -> XPS_experiment:
         date = head[4].split('=')[1][:-1]
         other_meta = head[5].split('=')[1][:-1]
 
-        llindex = 8
+        lindex = 8
         if len(head[6]) > 6:
             area = read_dict_area(head[6])
         else: area = None
