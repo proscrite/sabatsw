@@ -30,9 +30,13 @@ def cosmetics_plot(ax = None, leg : bool = True):
 def trim_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region, inplace : bool = False) -> XPS_experiment:
     """Crop spectra with different bounds so that they coincide with xpRef
     xpRef should have the shortest spectrum on both ends"""
-    e0 = xpRef.dfx[region].energy.head(1)
-    indrop = np.where(xp.dfx[region].energy.values > e0.values)[0]
-    dfnew = xp.dfx[region].dropna().drop(indrop).reset_index(drop=True)
+    eup = xpRef.dfx[region].energy.head(1)
+    edw = xpRef.dfx[region].dropna().energy.tail(1)
+
+    cutup = np.where(xp.dfx[region].energy.values > eup.values)[0]
+    cutdown = np.where(xp.dfx[region].dropna().energy.values < edw.values)[0]
+
+    dfnew = xp.dfx[region].dropna().drop(cutup).drop(cutdown).reset_index(drop=True)
 
     if inplace:
         xp.dfx[region] = dfnew
@@ -44,7 +48,7 @@ def trim_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region, inplace : 
 
 def crop_spectrum(xp : XPS_experiment, region : str,
                   eup : float = None, edw : float = None, inplace : bool = False):
-    """Limit region spectrum to upper (eup) and lower (edw) limits """
+    """Manually bound region spectrum to upper (eup) and lower (edw) limits """
     if eup == None: eup = xp.dfx[region].energy.head(1)[0]
     if edw == None: edw = xp.dfx[region].dropna().energy.tail(1).values[0]
 
@@ -62,13 +66,44 @@ def crop_spectrum(xp : XPS_experiment, region : str,
         xpNew.dfx[region] = dfnew
         return xpNew
 
+def trim_regions(experiments: list, regions: list)->list:
+    """Loop over specified regions, locate the experiment with shortest ends
+        and trim all spectra to meet those bounds"""
+
+    ### First find shortest spectra on both ends:
+    for i,r in enumerate(regions):
+        boundUp, boundDw = [], []
+        for xp in experiments:
+            x = xp.dfx[r].dropna().energy.values
+            boundUp.append(x[0])
+            boundDw.append(x[-1])
+        idBoundUp = np.argmin(boundUp)
+        idBoundDw = np.argmax(boundDw)
+
+    ### Now trim each
+    fig, ax = plt.subplots(len(regions), figsize=(8, 8*len(regions)))
+    trimmed_exps = []
+    for xp in experiments:
+        xp_trim = deepcopy(xp)
+        for i,r in enumerate(regions):
+            trim = trim_spectra(xp, xpRef=experiments[idBoundUp], region=r)   # Trim the upper ends
+            trim = trim_spectra(trim, xpRef=experiments[idBoundDw], region=r) # Trim the lower ends
+            plot_region(trim, r, ax=ax[i], lb=trim.name)
+            ax[i].set_title(r)
+            ax[i].legend()
+            xp_trim.dfx[r] = trim.dfx[r]
+        trimmed_exps.append(xp_trim)
+    return trimmed_exps
+
 def gaussian_smooth(xp : XPS_experiment, region, sigma : int = 2) -> XPS_experiment:
     from scipy.ndimage.filters import gaussian_filter1d
 
     y = gaussian_filter1d(xp.dfx[region].dropna().counts.values, sigma = 2)
     dfnew = pd.DataFrame({'energy' : xp.dfx[region].energy.dropna(), 'counts' : y})
-    xp.dfx[region] = dfnew
-    return xp
+
+    xpNew = deepcopy(xp)
+    xpNew.dfx[region] = dfnew
+    return xpNew
 
 def flexible_integration_limits(xp : XPS_experiment, region : str, doublePeak : float = 0, flag_plot : bool = True) -> list:
     """Autolocate limits for area integration.
@@ -210,18 +245,18 @@ def fit_voigt(xp : XPS_experiment, region : str,
               pars : list = None, bounds : list = None, prefix : str = 'v_',
               lb : str = None, ax = None, flag_plot : bool = True):
     """General method for fitting voigt model
-    Input
-    ----------
-    xp : class XPS_experiment
-        XPS data
-    region : str
-        core level name
-    pars, bounds : list
-        initial guess of the fit parameters and bounds. If unspecified, guessed automatically
-    Returns
-    -----------
-    fitv : lmfit.model
-        fit result to Voigt model
+        Input
+        ----------
+        xp : class XPS_experiment
+            XPS data
+        region : str
+            core level name
+        pars, bounds : list
+            initial guess of the fit parameters and bounds. If unspecified, guessed automatically
+        Returns
+        -----------
+        fitv : lmfit.model
+            fit result to Voigt model
     """
     from lmfit.models import PseudoVoigtModel, GaussianModel
 
@@ -511,3 +546,27 @@ def barplot_fit_fwhm(experiments : list, fit : np.array):
             plt.fill_betweenx(y=(i, i+1), x1=fit[i,2], x2=fit[i+1,2], alpha=0.3, color=colg)
     cosmetics_plot()
     plt.ylabel('')
+
+def plot_xp_regions(experiments : list, regions : list, colors : list = None):
+    """Subplots all regions of a list of experiments (unnormalised)"""
+    rows = int(np.ceil(len(regions) / 3))
+    cols = 3
+
+    fig, ax = plt.subplots(rows, cols, figsize=(16, 8))
+    for i,r in enumerate(regions):
+        for c,xp in enumerate(experiments):
+            j, k = i//3, i%3
+            if i == len(regions) - 1:   # Set labels from last region
+                li = plot_region(xp, r, ax=ax[j][k], lb=xp.name)
+                if len(colors) > 0: li.set_color(colors[c])
+                ax[j][k].set_title('Au_4f')
+                ax[j][k].get_legend().remove()
+            else:
+                li = plot_region(xp, r, ax=ax[j][k], lb='__nolabel__')
+                if len(colors) > 0: li.set_color(colors[c])
+                ax[j][k].set_title(r)
+            cosmetics_plot(ax=ax[j][k], leg = False);
+        if len(experiments)%2 == 0:
+            ax[j][k].invert_xaxis()
+    plt.tight_layout()
+    fig.legend()
