@@ -199,13 +199,13 @@ def read_processed_xp(path) -> XPS_experiment:
     return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name,
                                   label = label, date = date, other_meta = other_meta, area = area)
 
-def itx_import(pathfile : str, name : str) -> XPS_experiment:
-    with open(pathfile) as fin:
+def itx_import(path : str, name: str, label: str) -> XPS_experiment:
+    with open(path) as fin:
         lines = fin.readlines()
         EE, SS = [], []
         KE = []
         names = []
-        skiplines = []
+        counts = []    # skiplines = []
         pattern = r"'([A-Za-z0-9_\./\\-\\ ]*)'"
         npoints = []
         for i,l in enumerate(lines):
@@ -219,24 +219,27 @@ def itx_import(pathfile : str, name : str) -> XPS_experiment:
             if 'Excitation Energy' in l:
                 EE.append(float(l[24:-1]))
             if 'BEGIN' in l:
-                skiplines.append(i)
+                counts.append(pd.Series(list(map(float, lines[i+1].split()))))
+#                 skiplines.append(i)
 
     frames = []
-    for i, n in enumerate(names):
-        counts = pd.Series(pd.read_table(pathfile, sep='\s+', skiprows=skiplines[i]+1, nrows=1).T.index)
+    for i, c in enumerate(counts):
+#         counts = pd.Series(pd.read_table(pathfile, sep='\s+', skiprows=skiplines[i]+1, nrows=1).T.index)
         ke0, kef = re.findall('\d+\.\d+', KE[i])
         kenergy = np.linspace(float(ke0), float(kef)+SS[i], num=npoints[i])
         bindenergy = EE[i] - kenergy
-        assert len(bindenergy) == len(counts), "Import error: xy lengths do not coincide"
-        region = pd.DataFrame({'energy': bindenergy, 'counts':counts})
+        assert len(bindenergy) == len(c), "Import error: xy lengths do not coincide"
+        region = pd.DataFrame({'energy': bindenergy, 'counts':c})
         frames.append(region)
 
     dfx = pd.concat(frames, axis=1)
-    mi = pd.MultiIndex.from_product([names, np.array(['energy', 'counts'])])
+    mi = pd.MultiIndex.from_product([names, np.array(['energy', 'counts'])], names=['range', 'properties'])
+
     mi.to_frame()
     dfx.columns = mi
+    dfx.index.name=None
 
-    return XPS_experiment(path = pathfile, dfx = dfx, name = name)
+    return XPS_experiment(path = path, dfx = dfx, name= name, label=label)
 
 def pickle_xp(file : str, xp : XPS_experiment):
     import pickle
