@@ -11,6 +11,7 @@ import datetime
 import warnings
 from dataclasses import dataclass
 
+sys.path.append('~/sabat/sabatsw')
 
 from ali.ali_sw import load_raw_ali_df
 
@@ -153,7 +154,7 @@ def plotResiduesDistribution(dfp : pd.DataFrame, nsigma : int = 2) -> list:
     return ['peak'+str(i) for i in peaksID]
 
 def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 1,
- ax = None, lb : str = '', lb2 : str = ''):
+    ax = None, col: str = None, lb : str = '', lb2 : str = ''):
     """Plot average curve profile and the peaks with residuals larger than the specified Confidence Level
     Parameters:
     flag_p: bool
@@ -176,7 +177,7 @@ def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 
         for p in peaksID:
             ax.plot(dfp.index/sc, dfp[p].values, label = p)
 
-    color = ax.plot(dfp.index/sc, av_p, label = lb)[0].get_color()
+    color = ax.plot(dfp.index/sc, av_p, color=col, label = lb)[0].get_color()
     ax.fill_between(dfp.index/sc, av_p-nsigma*sd_p, av_p+nsigma*sd_p, color=color, alpha=0.3, label=lb2)
 
     cosmetics_aliplot()
