@@ -6,6 +6,8 @@ import glob
 import os
 import sys
 
+from ali.ali_peaks import avCurves
+
 def filterRepeatedOccurrences(a : np.array, th: int = 10) -> np.array:
     """Select first occurrence in an array of indices
     by computing backwards the distance between them and filtering out the immediate neighbours
@@ -123,6 +125,17 @@ def shorten_dfp(dfp : pd.DataFrame, pThres : float, inTh : int = 5):
             dfShort[i] = dfp[i][:rPt[0]]
     return dfShort
 
+def hard_shorten_dfp(dfp: pd.DataFrame, tmax: float) -> pd.DataFrame:
+    """Manual crop pulses to a maximum duration tmax [s]
+       Useful for experiments when the pulse valve couldn't close
+       and the pressure take forever to recover"""
+    tstep = 0.01 # [log time in seconds]
+    indMax = int(tmax / tstep)
+    dfShort = pd.DataFrame()
+    for i in dfp:
+        dfShort[i] = dfp[i][:indMax]
+    return dfShort
+
 def plot_maxP(dfp : pd.DataFrame, ax = None, flag_p : bool = False, col = 'b', lb : str = '') -> list:
     """Compute and plot max reached pressures in a dfPeak
     Return list of maxP
@@ -132,8 +145,10 @@ def plot_maxP(dfp : pd.DataFrame, ax = None, flag_p : bool = False, col = 'b', l
     Output:
     maxP : list
         List of max. pressures reached per peak"""
-
-    maxP = dfp.max(axis=0).values
+    import re
+    maxP = dfp.max(axis=0)
+    pNr = [int(re.findall(r'(\d+)', i)[0]) for i in maxP.index]
+    maxP.index = pNr
     if flag_p:
         if ax == None: ax = plt.gca()
         ax.semilogy(maxP, 'o', color = col, label=lb)
@@ -212,21 +227,14 @@ def table_vnm_pulses(Ntot : int, Nwet : int,
 
 ### Area integration, leak rate and leaked mass
 
-def area_raise(dfp : pd.DataFrame) -> list:
-    """Numerical integration of pulses until array maximum (peak)"""
-    # For one pulse:
-    # np.trapz(dfp.pulse0.iloc[:dfp.pulse0.idxmax()], x=dfp.pulse0.index[:dfp.pulse0.idxmax()]/100 )
-    upAreas = [np.trapz(dfp[p].iloc[:dfp[p].idxmax()], x=dfp[p].index[:dfp[p].idxmax()]/100 ) for p in dfp]
-    return upAreas
-
-def avLeakMass (wetP : pd.DataFrame(),
+def LeakMass (wetP : pd.DataFrame(),
                 M : float = 41.05,
                 Seff : float = 0.25) :
     """Integrate area under ALI pressure curves and compute leak rate and leaked mass.
         Parameters
         ----------
         wetP : ALI pandas.Dataframe (wet pulses)
-        M : solution/gas molarity
+        M : solution/gas molarity. Default value for AcN
         Seff : pumping effective speed. Default value 0.25 for C0 = 0.26
         Returns
         ----------
@@ -246,7 +254,128 @@ def avLeakMass (wetP : pd.DataFrame(),
     leak_mass = ql * dt * M / (R*T)
     return leak_mass, ql
 
-def fit_pump_profile(dfp : pd.DataFrame(), xdown : list, pdown : list):
+def area_raise(dfp : pd.DataFrame) -> list:
+    """Numerical integration of pulses until array maximum (peak) for steady leak rate"""
+    # For one pulse:
+    # np.trapz(dfp.pulse0.iloc[:dfp.pulse0.idxmax()], x=dfp.pulse0.index[:dfp.pulse0.idxmax()]/100 )
+    upAreas = [np.trapz(dfp[p].iloc[:dfp[p].idxmax()], x=dfp[p].index[:dfp[p].idxmax()]/100 ) for p in dfp]
+    return upAreas
+
+def area_Pdot(dfp: pd.DataFrame) -> np.array:
+    """Compute integrated area under time derivative chamber pressure for dynamic leak rate"""
+    areaPdot = []
+    tstep = 100
+
+    for p in dfp:
+        tmax = dfp[p].idxmax()+1
+        pRise = dfp[p].iloc[:tmax]
+        pdot = (pRise[1:].values - pRise[:-1].values)/tstep
+        areaPdot.append(np.trapz(pdot, x=dfp.index[:tmax-1]/100) )
+
+    return areaPdot
+
+def avLeakN (wetP : pd.DataFrame(),
+            Seff : float = 0.25,
+            Vcham: float = 4.7) :
+    """Integrate area under ALI pressure curves and
+        compute average leak rate and number of leaked molecules per pulse.
+        Parameters
+        ----------
+        wetP : ALI pandas.Dataframe (wet pulses)
+        Seff : pumping effective speed. Default value 0.25 for C0 = 0.26
+        Vcham : chamber volume. Default value 4.7 L
+        Returns
+        ----------
+        (leakN, uleakN) : tuple average leaked molecules and uncertainty
+        (qL, uqL) : tuple average leak rates per pulse [mbar*L/s] (steady and dynamic) and error
+    """
+
+    logtime = 0.01 # [10 ms]
+    T = 25+273 # Pulse valve temperature [K]
+    R = 83.144598 # Gas constant [L⋅mbar⋅K−1⋅mol−1]
+    NA = 6.023e23 # Avogadro constant [molec/mol]
+
+    avWet, sdWet, _ = avCurves(wetP)
+    wetArea = area_raise(wetP)
+    areaPdot = area_Pdot(wetP)
+    dt = np.argmax(avWet)/100
+
+    qLsted = np.average(wetArea) * Seff
+    uqLsted = np.std(wetArea)/np.sqrt(len(wetArea)) * Seff
+
+    qLdyn = np.average(areaPdot) * Vcham
+    uqLdyn = np.std(areaPdot)/np.sqrt(len(areaPdot)) * Vcham
+
+    qL = qLsted + qLdyn
+    uqL = np.sqrt(uqLsted**2 + uqLdyn**2)
+
+    leakN = qL * dt * NA / (R*T)
+    uleakN = uqL * leakN/qL
+    return (leakN, uleakN), (qL, uqL)
+
+def totalLeakN (wetP : pd.DataFrame(),
+            Seff : float = 0.25,
+            Vcham: float = 4.7) :
+    """Integrate area under ALI pressure curves and compute total leak rate and number of leaked molecules.
+        Parameters
+        ----------
+        wetP : ALI pandas.Dataframe (wet pulses)
+        Seff : pumping effective speed. Default value 0.25 for C0 = 0.26
+        Vcham : chamber volume. Default value 4.7 L
+        Returns
+        ----------
+        (leakN, uleakN) : tuple average leaked molecules and uncertainty
+        (qL, uqL) : tuple average leak rates per pulse [mbar*L/s] (steady and dynamic) and error
+    """
+
+    logtime = 0.01 # [10 ms]
+    T = 25+273 # Pulse valve temperature [K]
+    R = 83.144598 # Gas constant [L⋅mbar⋅K−1⋅mol−1]
+    NA = 6.023e23 # Avogadro constant [molec/mol]
+
+    wetArea = np.array(area_raise(wetP) )
+    areaPdot = np.array( area_Pdot(wetP) )
+    dt = wetP.idxmax().values/100
+    udt = logtime   # Relative error up to 10%
+
+    qLsted = wetArea * Seff
+    sqLsted = udt* wetArea * Seff
+
+    qLdyn = areaPdot * Vcham
+    uqLdyn = areaPdot * udt * Vcham
+
+    qL = qLsted + qLdyn
+    sqL = np.sqrt(uqLsted**2 + uqLdyn**2)
+
+    leakPulse = qL * dt * NA / (R*T)
+    sleakPulse = leakPulse * np.sqrt( (sqL/qL)**2 + (udt/dt)**2 )
+
+    leakN = np.sum(leakPulse)
+    sleakN = np.sqrt(np.sum(sleakPulse**2))
+    return (leakN, sleakN), (qL, sqL), (leakPulse, sleakPulse)
+
+def compute_soluteSolvent_ratio(conc: float, rho_mol : float, rho_solv : float, M_mol : float, M_solv : float):
+    """Compute n_solute/n_solvent ratio
+        Parameters:
+        ----
+        conc: solution concentration
+        rho_mol: solute (molecule) mass density
+        rho_solv: solvent mass density
+        M_mol: solute molar mass
+        M_solv: solvent molar mass
+        Use coherent units"""
+    inverse = M_solv/rho_solv*(1/conc - rho_mol/M_mol)
+    return 1/inverse
+
+rho_acn = 1.67
+M_acn = 41.05
+rho_baclo = 3200 # g/L
+M_baclo = 336.3
+rho_fbi = 21.6
+M_fbi = 529
+conc = 1e-6 #Molar
+
+def fit_pump_profile(dfp : pd.DataFrame, xdown : list, pdown : list):
     """Fit custom model to average pumping profile of ALI curve
     Model is the sum of two exponential with different decay and a negative power of t
     Input:
@@ -264,4 +393,4 @@ def fit_pump_profile(dfp : pd.DataFrame(), xdown : list, pdown : list):
     fitDw, covDw = curve_fit(exp2, xdown, pdown, p0=[pdown[0], 30, pdown[-1], 0.1, 5e-3, 0.5])
     plt.semilogy(xdown, exp2(xdown, *fitDw), '-r', label='Fit model')
     plt.legend()
-    return fitDw, #np.sqrt(np.diag(covDw))
+    return fitDw #, np.sqrt(np.diag(covDw))

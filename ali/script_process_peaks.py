@@ -7,9 +7,10 @@ import sys
 
 import datetime
 import warnings
+sys.path.append('/Users/pabloherrero/sabat/sabatsw')
 
-from ali_sw import load_raw_ali_df
-from ali_peaks import process_dfRaw_peaks, save_processed_peaks, plotAverageProfile
+from ali.ali_sw import load_raw_ali_df
+from ali.ali_peaks import process_dfRaw_peaks, save_processed_peaks, plotAverageProfile
 import argparse
 
 ######   Main   ######
@@ -26,7 +27,11 @@ parser.add_argument('-p', dest='plotter', action='store_const',
                     help='Plot average profile with CI')
 args = parser.parse_args()
 
+if '/' not in args.inPath:
+    args.inPath = './' + args.inPath
+    # Dealing with relative paths (if the script is run from the inPath directory)
 print('Processing file: ', args.inPath)
+
 dfp = process_dfRaw_peaks(args.inPath, peakLength = args.L )#args.peakLength)
 save_processed_peaks(args.inPath, dfp)
 
