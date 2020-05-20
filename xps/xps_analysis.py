@@ -98,7 +98,7 @@ def trim_regions(experiments: list, regions: list)->list:
 def gaussian_smooth(xp : XPS_experiment, region, sigma : int = 2) -> XPS_experiment:
     from scipy.ndimage.filters import gaussian_filter1d
 
-    y = gaussian_filter1d(xp.dfx[region].dropna().counts.values, sigma = 2)
+    y = gaussian_filter1d(xp.dfx[region].dropna().counts.values, sigma = sigma)
     dfnew = pd.DataFrame({'energy' : xp.dfx[region].energy.dropna(), 'counts' : y})
 
     xpNew = deepcopy(xp)
@@ -275,7 +275,7 @@ def fit_voigt(xp : XPS_experiment, region : str,
 
     if flag_plot:
         if ax == None : ax = plt.gca()
-        ax.plot(x, fitv.best_fit, '--', label='Voigt fit, $\chi^2_N$ = %i' %fitv.redchi)
+        ax.plot(x, fitv.best_fit, '--', label=prefix+'center: %.2f'%(fitv.best_values[prefix+'center']))
         ax.legend()
     return fitv
 
@@ -547,15 +547,14 @@ def barplot_fit_fwhm(experiments : list, fit : np.array):
     cosmetics_plot()
     plt.ylabel('')
 
-def plot_xp_regions(experiments : list, regions : list, colors : list = None):
+def plot_xp_regions(experiments : list, regions : list, colors : list = None, ncols: int = 3):
     """Subplots all regions of a list of experiments (unnormalised)"""
-    rows = int(np.ceil(len(regions) / 3))
-    cols = 3
+    rows = int(np.ceil(len(regions) / ncols))
 
-    fig, ax = plt.subplots(rows, cols, figsize=(16, 8))
+    fig, ax = plt.subplots(rows, ncols, figsize=(16, 8))
     for i,r in enumerate(regions):
         for c,xp in enumerate(experiments):
-            j, k = i//3, i%3
+            j, k = i//ncols, i%ncols
             if i == len(regions) - 1:   # Set labels from last region
                 li = plot_region(xp, r, ax=ax[j][k], lb=xp.name)
                 if len(colors) > 0: li.set_color(colors[c])
