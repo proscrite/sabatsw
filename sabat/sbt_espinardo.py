@@ -260,60 +260,6 @@ def tom_mean_I(TOMS):
     return [tom.mean().mean() for tom in TOMS]
 
 
-<<<<<<< HEAD
-=======
-def plot_LIVE_images(IMG, nx=6, ny=5, figsize=(18,12)):
-    fig = plt.figure(figsize=figsize)
-    for i, img in enumerate(IMG):
-        ax      = fig.add_subplot(nx, ny, i+1)
-        imshow(img,cmap=plt.cm.hot)
-    plt.show()
-
-
-def plot_LIVE_avg(DF, xpixel =(0, 255), ypixel = (0,255), imax = 200, nx=6, ny=5, figsize=(18,12)):
-    xmin = xpixel[0]
-    xmax = xpixel[1]
-    ymin = ypixel[0]
-    ymax = ypixel[1]
-    def plot_df(DF, axis='X'):
-        fig = plt.figure(figsize=figsize)
-        for i, img in enumerate(DF):
-            ax      = fig.add_subplot(nx, ny, i+1)
-            if axis == 'X' :
-                plt.plot(DF[i].mean()[xmin:xmax])
-            else:
-                plt.plot(DF[i].T.mean()[ymin:ymax])
-            plt.xlabel(axis + ' (pixel)')
-            plt.ylabel('I (a.u.)')
-            plt.ylim(0,imax)
-        plt.show()
-    plot_df(DF, axis='X')
-    plot_df(DF, axis='Y')
-
-
-def plot_avg_intensity(DF, imax = 200, err=None, figsize=(12,12)):
-    I = avg_intensity(DF)
-    X = np.arange(len(I))
-    fig = plt.figure(figsize=figsize)
-    if err == None:
-        err = np.sqrt(I)
-    plt.errorbar(X,I, yerr=err, fmt="kp", ms=7, ls='none')
-    plt.ylim(0,imax)
-    plt.xlabel('shot number')
-    plt.ylabel('I (a.u.)')
-    #plt.show()
-
-def plot_total_intensity(DF, imax = 1e+7, figsize=(12,12)):
-    I = total_intensity(DF)
-    X = np.arange(len(I))
-    fig = plt.figure(figsize=figsize)
-    plt.errorbar(X,I, yerr=np.sqrt(I), fmt="kp", ms=7, ls='none')
-    plt.ylim(0,imax)
-    plt.xlabel('shot number')
-    plt.ylabel('I (a.u.)')
-    #plt.show()
-
->>>>>>> d5a3400... Update ali, rga and simion sw
 def avg_intensity(DF):
     return [df.T.mean().mean() for df in DF]
 
