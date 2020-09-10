@@ -10,13 +10,19 @@ from scipy.optimize import curve_fit
 
 from dataclasses import dataclass
 from xps.xps_import import XPS_experiment
+from lmfit.model import ModelResult
 
-
-def plot_region(xp : XPS_experiment, region : str, lb : str = None, ax = None):
+def plot_region(xp : XPS_experiment, region : str, col: str = None, lb : str = None, ax = None):
     """Quick region plotter"""
     if lb == None: lb = xp.name + ', ' + region
     if ax == None: ax = plt.gca()
     p1 = ax.plot(xp.dfx[region].energy, xp.dfx[region].counts, label=lb)
+
+    if col != None:
+        p1[0].set(color=col)
+    elif xp.color :
+        p1[0].set(color=xp.color)
+
     cosmetics_plot()
     return p1[0]
 
@@ -49,7 +55,7 @@ def trim_spectra(xp : XPS_experiment, xpRef : XPS_experiment, region, inplace : 
 def crop_spectrum(xp : XPS_experiment, region : str,
                   eup : float = None, edw : float = None, inplace : bool = False):
     """Manually bound region spectrum to upper (eup) and lower (edw) limits """
-    if eup == None: eup = xp.dfx[region].energy.head(1)[0]
+    if eup == None: eup = xp.dfx[region].energy.head(1).values[0]
     if edw == None: edw = xp.dfx[region].dropna().energy.tail(1).values[0]
 
     dropup = np.where(xp.dfx[region].energy.values > eup)[0]
@@ -171,6 +177,62 @@ def inset_rel_areas(area_rel : list, names : list) -> None:
     axins.tick_params(labelrotation=45)
     ax.legend(loc='upper left')
 
+
+def integrateRegions(exps: list, region : str, indRef: int, asf: dict, lb : str = None, flag_fill : bool = True):
+    """Integrate peaks for a list of experiments between two minima automatically located for exps[indRef]
+    The boundary are fixed for the whole list."""
+
+    ind = flexible_integration_limits(exps[indRef], region=region, doublePeak=0, flag_plot=False)
+    lmidx, rmidx = ind[-2:] # The index of the minima are always the last two
+    plt.clf()
+
+    xRef = exps[indRef].dfx[region].dropna().energy     # Use the energy array of reference xp to crop the other xp's
+
+    fig, ax = plt.subplots(1, len(exps), figsize=(len(exps)*5, 5) )
+    area = []
+    for i, xp in enumerate(exps):
+        try:
+            y = xp.dfx[region].dropna().counts
+        except KeyError as e:          #Check the region exists in this xp
+            print(e, 'region does not exist in ' + xp.name)
+            xp.area.update({region: 0})
+            continue
+
+        x = xp.dfx[region].dropna().energy
+        ax[i].plot(x, y, label=xp.name)
+
+        xpCrop = crop_spectrum(xp, region, eup = xRef[lmidx], edw = xRef[rmidx])
+        yc = xpCrop.dfx[region].dropna().counts.values
+        xc = xpCrop.dfx[region].dropna().energy.values    # Integrate only in the cropped range
+
+        step = x[0] - x[1]
+        area.append(np.trapz(yc, dx=step))
+
+        try:
+            xp.area.update({region : area[-1]/asf[region]})
+        except (KeyError, NameError) as e:
+            print(e, ', returning raw area')
+            pass
+
+        if flag_fill:
+            if yc[0] > yc[-1]:
+                ax[i].fill_between(xc , y1 = yc[-1], y2 = yc, alpha=0.3)
+            else:
+                ax[i].fill_between(xc, y1 = yc[0], y2 = yc, alpha=0.3)
+            ybase = ax[i].get_ylim()[0]
+
+            for j in [0, -1]:
+                ax[i].vlines(xc[j], ymin=ybase, ymax=yc[j], linestyles='--')
+                ax[i].text(s='%.2f'%xc[j], x = xc[j], y = yc[j])
+        cosmetics_plot(ax=ax[i])
+    plt.tight_layout()
+    fig.suptitle(region)
+    return area
+
+################################################################
+########           Fitting functions                    ########
+################################################################
+
 def gauss(x, *p):
     A, mu, sigma = p
     return A *  np.exp(-( x-mu )**2 / (2.*sigma**2))
@@ -241,9 +303,8 @@ def compute_gauss_area(fit, prefix):
     amp = fit.best_values[prefix+'amplitude']
     return amp * np.sqrt(np.pi/sigma)
 
-def fit_voigt(xp : XPS_experiment, region : str,
-              pars : list = None, bounds : list = None, prefix : str = 'v_',
-              lb : str = None, ax = None, flag_plot : bool = True):
+def fit_voigt(xp : XPS_experiment, region : str,  prefix : str = 'v_',
+              pars : list = None, bounds : list = None, flag_plot: bool = True):
     """General method for fitting voigt model
         Input
         ----------
@@ -263,8 +324,6 @@ def fit_voigt(xp : XPS_experiment, region : str,
     x = xp.dfx[region].dropna().energy
     y = xp.dfx[region].dropna().counts
 
-    col = plot_region(xp, region, lb, ax).get_color()
-
     mod = PseudoVoigtModel(prefix=prefix)
     if pars == None:
         pars = mod.guess(y, x=x)
@@ -272,35 +331,31 @@ def fit_voigt(xp : XPS_experiment, region : str,
         pars[prefix+'fraction'].set(value=0.2, min=0.15, max=0.20)
 
     fitv = mod.fit(y, pars, x=x)
-
     if flag_plot:
-        if ax == None : ax = plt.gca()
-        ax.plot(x, fitv.best_fit, '--', label=prefix+'center: %.2f'%(fitv.best_values[prefix+'center']))
-        ax.legend()
+        plot_fit_result(xp, region, fitv)
     return fitv
 
 def add_gauss_shoulder(xp : XPS_experiment, region : str, par_g : list, bounds_g: list,
                        fitv = None, Ng : int = 1, lb : str = None, ax = None, flag_plot : bool = True):
-    """Add gaussian shoulder to fit
-    Input
-    ----------
-    xp : class XPS_experiment
-        XPS data
-    region : str
-        core level name
-    par_g, bounds_g : list
-        initial guess of the gauss fit parameters and bounds.
-    Returns
-    -----------
-    fitvg : lmfit.model
-        fit result to Voigt + Gaussian model
+    """
+        Add gaussian shoulder to fit
+        Input
+        ----------
+        xp : class XPS_experiment
+            XPS data
+        region : str
+            core level name
+        par_g, bounds_g : list
+            initial guess of the gauss fit parameters and bounds.
+        Returns
+        -----------
+        fitvg : lmfit.model
+            fit result to Voigt + Gaussian model
     """
     from lmfit.models import PseudoVoigtModel, GaussianModel
 
     x = xp.dfx[region].dropna().energy
     y = xp.dfx[region].dropna().counts
-    if ax == None : ax = plt.gca()
-    col = plot_region(xp, region, lb, ax).get_color()
 
     gauss2 = GaussianModel(prefix='g'+str(Ng)+'_')
     pars = fitv.params
@@ -313,35 +368,29 @@ def add_gauss_shoulder(xp : XPS_experiment, region : str, par_g : list, bounds_g
     fitvg = mod2.fit(y, pars, x=x)
     # print(fitvg.fit_report(min_correl=.5))
     if flag_plot:
-        comps = fitvg.eval_components(x=x)
-
-        ax.plot(x, fitvg.best_fit, '-r', label = 'best fit, $\chi^2_N$ = %i' %fitvg.redchi)
-        for compo in comps:
-            colc = ax.plot(x, comps[compo], ls='dashdot', label = '%scenter: %.2f' %(compo, fitvg.best_values[compo+'center']) )[0].get_color()
-            ax.fill_between(x, y1 = 0, y2 = comps[compo], alpha=0.3, color=colc)
-        ax.legend()
-    cosmetics_plot(ax=ax)
+        plot_fit_result(xp, region, fitvg)
     return fitvg
 
+
 def fit_double_voigt(xp : XPS_experiment, region : str, pars : list = None, bounds : list = None, sepPt : float = None,
-                     lb : str = None, ax = None, flag_plot : bool = True, DEBUG : bool = False):
+                     lb : str = None, ax = None, flag_plot : bool = True, plot_comps: bool = False, DEBUG : bool = False):
     """Fitting double voigt model
-    Input
-    ----------
-    xp : class XPS_experiment
-        XPS data
-    region : str
-        core level name
-    pars, bounds : list
-        initial guess of the fit parameters and bounds. If unspecified, guessed automatically
-    sepPt : float
-        separation point in energy between the two peaks. If unspecified guessed automatically
-    flag_plot, DEBUG : bool
-        flags to plot intermediate and final fit results
-    Returns
-    -----------
-    fitv : lmfit.model
-        fit result to Voigt model
+        Input
+        ----------
+        xp : class XPS_experiment
+            XPS data
+        region : str
+            core level name
+        pars, bounds : list
+            initial guess of the fit parameters and bounds. If unspecified, guessed automatically
+        sepPt : float
+            separation point in energy between the two peaks. If unspecified guessed automatically
+        flag_plot, DEBUG : bool
+            flags to plot intermediate and final fit results
+        Returns
+        -----------
+        fitv : lmfit.model
+            fit result to Voigt model
     """
     from lmfit.models import PseudoVoigtModel
 
@@ -353,9 +402,6 @@ def fit_double_voigt(xp : XPS_experiment, region : str, pars : list = None, boun
     x2 = x[x>sepPt].values
     y1 = y[x<sepPt].values
     y2 = y[x>sepPt].values
-    if ax == None : ax = plt.gca()
-
-    col = plot_region(xp, region, lb=xp.name, ax=ax).get_color()
 
     mod1 = PseudoVoigtModel(prefix='v1_')
     mod2 = PseudoVoigtModel(prefix='v2_')
@@ -369,19 +415,40 @@ def fit_double_voigt(xp : XPS_experiment, region : str, pars : list = None, boun
     pars = mod.make_params()
     pars.update(pars1)
     pars.update(pars2)
-    if DEBUG:
+    if DEBUG:   # Fit & plot individual components separately
         fit1 = mod1.fit(y1, x=x1, params=pars1)
         fit2 = mod2.fit(y2, x=x2, params=pars2)
-        ax.plot(x1, fit1.best_fit, '--', label='Fit first Voigt')
-        ax.plot(x2, fit2.best_fit, '--', label='Fit second Voigt')
+        plot_fit_result(xp, region, fit1)
+        plot_fit_result(xp, region, fit2)
 
     fitv = mod.fit(y, pars, x=x)
 
     if flag_plot:
-        ax.plot(x, fitv.best_fit, '--', label='Fit to double Voigt')
-        ax.legend()
-
+        plot_fit_result(xp, region, fitv)
     return fitv
+
+def plot_fit_result(xp: XPS_experiment, region: str, fitRes: ModelResult,
+                    lb : str = None, ax = None, plot_comps: bool = True, flag_fill: bool = False):
+    if ax == None : ax = plt.gca()
+    col = plot_region(xp, region, ax=ax, lb=lb).get_color()
+
+    x = xp.dfx[region].dropna().energy
+
+    ax.plot(x, fitRes.best_fit, '--', color=col, lw=1.5, label='best fit, $\chi^2_N$ = %i' %fitRes.redchi)
+    ax.legend()
+
+    if plot_comps:
+        comps = fitRes.eval_components(x=x)
+        for compo in comps:
+            posx = fitRes.best_values[compo+'center']
+            colc = ax.plot(x, comps[compo], ls='dotted', lw=1.5, color=col, label='__nolabel__')[0].get_color()
+
+            ax.vlines(x=posx, ymin=0, ymax=comps[compo].max(), linestyle='dotted', colors=col)
+            ax.text(x=posx, y=comps[compo].max()*0.9, s='%.1f' %posx, fontsize=12)
+            if flag_fill:
+                ax.fill_between(x, y1 = 0, y2 = comps[compo], alpha=0.3, color=colc)
+
+    return ax
 
 def find_separation_point(x : np.array, y : np.array, min_dist : int = 20,
                           thres0 :float = 0.5, ax = None, DEBUG : bool = False) -> float:
@@ -485,7 +552,7 @@ def make_stoichometry_table(exps : list, num : list, denom : list):
     will print the stoichiometry N/C, Br/O for the passed experiments"""
     make_header(num = num, denom = denom)
 #     print('Experiment, ' + )
-    for i, xp in enumerate(exps):
+    for k, xp in enumerate(exps):
         row = xp.name + '\t'
         for i, j in zip (num, denom):
             row += ('%.2f\t ' %(xp.area[i]/xp.area[j]))
@@ -547,7 +614,7 @@ def barplot_fit_fwhm(experiments : list, fit : np.array):
     cosmetics_plot()
     plt.ylabel('')
 
-def plot_xp_regions(experiments : list, regions : list, colors : list = None, ncols: int = 3):
+def plot_xp_regions(experiments : list, regions : list, colors : list = [], ncols: int = 3):
     """Subplots all regions of a list of experiments (unnormalised)"""
     rows = int(np.ceil(len(regions) / ncols))
 
@@ -558,7 +625,7 @@ def plot_xp_regions(experiments : list, regions : list, colors : list = None, nc
             if i == len(regions) - 1:   # Set labels from last region
                 li = plot_region(xp, r, ax=ax[j][k], lb=xp.name)
                 if len(colors) > 0: li.set_color(colors[c])
-                ax[j][k].set_title('Au_4f')
+                #ax[j][k].set_title('Au_4f')
                 ax[j][k].get_legend().remove()
             else:
                 li = plot_region(xp, r, ax=ax[j][k], lb='__nolabel__')
