@@ -151,6 +151,30 @@ def normalise_dfx(xp : XPS_experiment, inplace : bool = False):
         xpNew.dfx = dfnew
     return xpNew
 
+def compress_noisy_region(xp: XPS_experiment, xpRef: XPS_experiment, region, lb: tuple = None, inplace: bool = False):
+    fig, ax = plt.subplots(1, 2, figsize=(12, 8))
+    if lb == None: lb = (xp.name, xpRef.name)
+    df, dfRef = xp.dfx[region].dropna(), xpRef.dfx[region].dropna()
+
+    ax[0].plot(df.energy, df.counts, '-b', label=lb[0] + ' (bg.)')
+    ax[0].plot(dfRef.energy, dfRef.counts, '-r', label=lb[1] + ' (sg.)')
+
+    bl_factor = np.average(baseline_als(dfRef.counts))
+    scale = bl_factor / np.max(df.counts)
+    y_scale = df.counts * scale
+
+    ax[1].plot(df.energy, y_scale, '-b', label='noise compressed')
+    ax[1].plot(dfRef.energy, dfRef.counts , '-r', label=lb[1]+' (sg.)')
+    ax[1].legend(); ax[0].legend()
+    if inplace:
+        xp.dfx[region] = pd.DataFrame([xp.dfx[region].energy, y_scale]).T
+        return xp
+    else:
+        xpNew = deepcopy(xp)
+        xpNew.dfx[region].counts = y_scale
+    return xpNew
+
+
 def find_integration_limits(x, y, flag_plot = False, region : str = None, ax = None):
     """Utility to locate limits for shirley bg subtraction"""
     # Locate the biggest peak.
@@ -251,7 +275,7 @@ def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, max
     x, y = xp.dfx[region].dropna().energy.values, xp.dfx[region].dropna().counts.values
     col = plot_region(xp, region, ax = ax, lb=lb).get_color()
     if xlim == None: xlim = find_separation_point(x, y)
-    
+
     y1 = y[ x >= xlim ]
     x1 = x[ x >= xlim ]
     y2 = y[ x <= xlim ]
@@ -273,6 +297,31 @@ def subtract_double_shirley(xp : XPS_experiment, region : str, xlim : float, max
     xpNew.dfx[region] = dfnew
     return xpNew
 
+def subtract_ALShirley_bg(xp : XPS_experiment, region : str, maxit : int = 10, lb : str = '__nolabel__', ax = None) -> XPS_experiment:
+    """Plot region and shirley background. Decorator for shirley_loop function"""
+    x, y = xp.dfx[region].dropna().energy.values, xp.dfx[region].dropna().counts.values
+    col = plot_region(xp = xp, region = region, lb = lb, ax = ax).get_color()
+
+    lmidx, rmidx = find_integration_limits(x, y, flag_plot=True, region = region, ax = ax)
+    ybg = shirley_loop(x, y, maxit = maxit)
+
+    yAlsDw = baseline_als(y[:lmidx])
+    ybg[:lmidx] = yAlsDw
+#     try:
+#         yAlsUp = baseline_als(y[rmidx:])
+#         ybg[rmidx:] = yAlsUp
+#     except ValueError:
+#         pass
+
+    if ax == None: ax = plt.gca()
+    ax.plot(x, ybg, '--', color=col, label=lb);
+    #cosmetics_plot(ax = ax)
+
+    dfnew = pd.DataFrame({'energy' : x, 'counts' : y - ybg})
+    xpNew = deepcopy(xp)
+    xpNew.dfx[region] = dfnew
+    return xpNew
+
 def subtract_linear_bg (xp : XPS_experiment, region, lb : str = None, ax = None) -> XPS_experiment:
     """Fit background to line and subtract from data"""
 
@@ -290,6 +339,45 @@ def subtract_linear_bg (xp : XPS_experiment, region, lb : str = None, ax = None)
     xpNew.dfx[region] = dfnew
     return xpNew
 
+def baseline_als(y: np.array, lam: float =1e4, p: float = 0.01, niter=30) -> np.array:
+    """Asymmetric Least Squares Smoothing algorithm
+    Parameters:
+        y: in data for baseline search
+        lamb: smoothness parameter, 100 ≤ lam ≤ 1e9
+        p: asymmetry parameter, 0.001 ≤ p ≤ 0.1
+
+    Returns:
+        z: baseline    """
+    from scipy import sparse
+    from scipy.sparse.linalg import spsolve
+
+    L = len(y)
+    D = sparse.diags([1,-2,1],[0,-1,-2], shape=(L,L-2))
+    D = lam * D.dot(D.transpose()) # Precompute this term since it does not depend on `w`
+    w = np.ones(L)
+    W = sparse.spdiags(w, 0, L, L)
+    for i in range(niter):
+        W.setdiag(w) # Do not create a new matrix, just update diagonal values
+        Z = W + D
+        z = spsolve(Z, w*y)
+        w = p * (y > z) + (1-p) * (y < z)
+    return z
+
+def subtract_als_bg (xp : XPS_experiment, region, lb : str = None, ax = None) -> XPS_experiment:
+    """Fit background to asymmetric Least Square Smoothed bg and subtract from data"""
+
+    x = xp.dfx[region].dropna().energy.values
+    y = xp.dfx[region].dropna().counts.values
+    if ax == None: ax = plt.gca()
+    col = plot_region(xp, region, lb=region, ax=ax).get_color()
+
+    bl = baseline_als(y)
+    ax.plot(x, bl, '--', color=col, label='ALS Baseline')
+
+    dfnew = pd.DataFrame({'energy' : x, 'counts' : y - bl})
+    xpNew = deepcopy(xp)
+    xpNew.dfx[region] = dfnew
+    return xpNew
 
 ######## Factoring Background functions #########
 class XPBackground(object):
@@ -352,8 +440,8 @@ def bulk_bg_subtract(experiments : list, regions : list) -> list:
             try:
                 xp_r = subtract_shirley_bg(xp, r, maxit=40, lb=xp.label, ax=ax[i][0]);    # Perform bg subtraction
             except AssertionError:
-                print('Max iterations exceeded, subtract linear baseline')
-                xp_r = subtract_linear_bg(xp, r, lb=xp.label, ax = ax[i][0])
+                print('Max iterations exceeded, subtract ALS baseline')
+                xp_r = subtract_als_bg(xp, r, lb=xp.label, ax = ax[i][0])
             plot_region(xp_r, r, ax=ax[i][1])
             ax[i][0].set_title(r)
             ax[i][1].set_title('Subtraction result')
@@ -363,6 +451,8 @@ def bulk_bg_subtract(experiments : list, regions : list) -> list:
 
             xp_bg.dfx[r] = xp_r.dfx[r]   # Store bg-subtracted region
         bg_exps.append(xp_bg)   # Store bg-subtracted regions experiment
+    fig.tight_layout()
+
     return bg_exps
 
 def region_bg_subtract(experiments : list, region = str) -> list:
@@ -375,7 +465,7 @@ def region_bg_subtract(experiments : list, region = str) -> list:
             xp_bg = subtract_shirley_bg(xp, region, maxit=100, lb='__nolabel__', ax = ax[j][0])
         except AssertionError:
             print('Max iterations exceeded, subtract linear baseline')
-            xp_bg = subtract_linear_bg(xp, region, lb='__nolabel__', ax = ax[j][0])
+            xp_bg = subtract_als_bg(xp, region, lb='__nolabel__', ax = ax[j][0])
         bg_exps.append(xp_bg)
         plot_region(xp_bg, region, ax=ax[j][1])
         ax[j][0].set_title(xp.name)
@@ -394,7 +484,7 @@ def region_2bg_subtract(experiments : list, region : str, xlim : float, flag_plo
             xp_bg = subtract_double_shirley(xp, region, xlim=xlim, maxit=100, lb=xp.name, flag_plot=flag_plot, ax = ax[j][0])
         except AssertionError:
             print('Max iterations exceeded, subtract linear baseline')
-            xp_bg = subtract_linear_bg(xp, region, lb=xp.name, ax = ax[j][0])
+            xp_bg = subtract_als_bg(xp, region, lb=xp.name, ax = ax[j][0])
         bg_exps.append(xp_bg)
         plot_region(xp_bg, region, ax=ax[j][1])
         ax[j][0].set_title(xp.name)
