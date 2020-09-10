@@ -119,6 +119,8 @@ class XPS_experiment:
         other info contained in the filename
     area : dict
         dictionary with name of regions and integrated areas
+    color: str
+        color for plotting (property not stored)
     """
     path : str = None
     delimiters : tuple = None
@@ -128,8 +130,9 @@ class XPS_experiment:
     other_meta : str = None
     dfx : pd.DataFrame = None
     area : dict = None
+    color : str = None
 
-def xps_data_import(path : str, name : str = None, label : str = None) -> XPS_experiment:
+def xps_data_import(path : str, name : str = None, label : str = None, color: str = None) -> XPS_experiment:
     """Method to arrange a XPS_experiment data"""
     dfx = import_xps_df(path)
     delimiters = xy_region_delimiters(path)
@@ -143,7 +146,11 @@ def xps_data_import(path : str, name : str = None, label : str = None) -> XPS_ex
     da = re.search('\d+_', filename).group(0).replace('/', '').replace('_', '')
     date = re.sub('(\d{4})(\d{2})(\d{2})', r"\1.\2.\3", da, flags=re.DOTALL)
     other_meta = dir_name + filename.replace(da, '')
-    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name, label = label, date = date, other_meta = other_meta)
+    if name == None: name = other_meta
+    if label == None: label = da+'_'+other_meta
+
+    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, color = color,
+                          name = name, label = label, date = date, other_meta = other_meta)
 
 ##############################   Processed files  ###########################
 
@@ -176,12 +183,12 @@ def read_processed_dfx(path : str, names : list, skiprows0 : int = 9) -> pd.Data
     dfx.index.name=None
     return dfx
 
-def read_processed_xp(path) -> XPS_experiment:
+def read_processed_xp(path: str, color: str = None) -> XPS_experiment:
     """Read XPS_experiment class from file"""
     from itertools import islice
 
     with open(path) as fin:
-        head = list(islice(fin, 9))
+        head = list(islice(fin, 10))
 
         delimiters = head[1].split('=')[1][:-1]
         name = head[2].split('=')[1][:-1]
@@ -189,14 +196,15 @@ def read_processed_xp(path) -> XPS_experiment:
         date = head[4].split('=')[1][:-1]
         other_meta = head[5].split('=')[1][:-1]
 
-        lindex = 8
+        lindex = 9
         if len(head[6]) > 6:
             area = read_dict_area(head[6])
+            color = head[7].split('=')[1][:-1]
         else: area = None
         names = head[lindex].split(',')[1:-1:2]
-        dfx = read_processed_dfx(path, names, lindex+2)
+        dfx = read_processed_dfx(path, names, lindex+3)
 
-    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name,
+    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name, color = color,
                                   label = label, date = date, other_meta = other_meta, area = area)
 
 def itx_import(path : str, name: str, label: str) -> XPS_experiment:
