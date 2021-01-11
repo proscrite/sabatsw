@@ -12,13 +12,23 @@ from mpl_toolkits.mplot3d import Axes3D
 def load_raw_ali_df ( filename ) :
     """load a df, if filename correctly found, and transform Date/Time from string to Timestamp type"""
     try:
-        dfin = pd.read_table(filename, sep='\t', skiprows=1, header=1, decimal=',', encoding='ascii')
-        dfin.columns = ["datetime", "p_chamber" ,"p_act", "p_lock",	"p_pre-inj", "t_valve",	"valve", "time_on"]
+        dfin = pd.read_csv(filename, sep='\t', skiprows=1, header=1, decimal=',', engine='python')
 
-        dfin["datetime"] = dfin["datetime"].apply(lambda x: datetime.datetime.strptime(x, '%d/%m/%Y %H:%M:%S.%f'))
-
-        return dfin
     except IOError: warnings.warn(f' does not exist: file = {filename} ', UserWarning)
+
+    dfin.columns = ["datetime", "p_chamber" ,"p_act", "p_lock",	"p_pre-inj", "t_valve",	"valve", "time_on"]
+    try:
+        dfin["datetime"] = dfin["datetime"].apply(lambda x: datetime.datetime.strptime(x, '%d/%m/%Y %H:%M:%S.%f'))
+    except ValueError:  # In the case the run was restarted in a same file, the header row is written again. Drop it:
+
+        dfNa = pd.to_numeric(dfin.valve, errors='coerce', ) # This column should be binary
+        wrongRow = dfin[dfNa.isna()].index
+        dffix = dfin.drop(wrongRow)
+
+        dffix["datetime"] = dffix["datetime"].apply(lambda x: datetime.datetime.strptime(x, '%d/%m/%Y %H:%M:%S.%f'))
+        return dffix
+
+    return dfin
 
 def plot_pressure_curve(df : pd.DataFrame,
                         tit : str,

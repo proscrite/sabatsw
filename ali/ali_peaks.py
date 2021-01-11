@@ -164,7 +164,6 @@ def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 
     import matplotlib.pyplot as plt
     sc = 100 # Timescale: seconds
 
-
     av_p, sd_p, _ = avCurves(dfp)
 
     if ax == None:
@@ -180,7 +179,7 @@ def plotAverageProfile(dfp : pd.DataFrame, flag_p: bool = False, nsigma : int = 
     color = ax.plot(dfp.index/sc, av_p, color=col, label = lb)[0].get_color()
     ax.fill_between(dfp.index/sc, av_p-nsigma*sd_p, av_p+nsigma*sd_p, color=color, alpha=0.3, label=lb2)
 
-    cosmetics_aliplot()
+    cosmetics_aliplot(ax)
     return ax
 
 def polishDfPeak(dfp, nsigma : int = 2) -> pd.DataFrame:
@@ -214,9 +213,10 @@ def save_processed_peaks(path: str, dfp : pd.DataFrame):
 class AliPeaks:
     "ALI dataclass, peaks df and metadata"
     dfp : pd.DataFrame
-    p_gas : str
-    t_on : str
-    date : str
+    p_gas : str = None
+    t_on : str = None
+    date : str = None
+    AimPulses : str = None
     other_meta : str = None
 
 def import_peaks(path : str) -> list:
@@ -225,11 +225,18 @@ def import_peaks(path : str) -> list:
     Returns: dfp, p_gas, t_on, date"""
     dfp = pd.read_csv(path, index_col = 0)
     filename = os.path.split(path)[1]
-    p_gas  = re.search('\d+mbar', filename).group(0)
-    t_on = re.search('\d+ms', filename).group(0)
-    da = re.search('/\d+_', path).group(0).replace('/', '').replace('_', '')
-    date = re.sub('(\d{2})(\d{2})(\d{4})', r"\1.\2.\3", da, flags=re.DOTALL)
 
-    other_meta = filename.replace(p_gas, '').replace(t_on, '').replace(date, '')
+    p_gas, t_on, date, AimPulses, other_meta = (None,None,None,None,None)
+    try:
+        p_gas  = re.search('\d+mbar', filename).group(0)
+        t_on = re.search('\d+ms', filename).group(0)
+        AimPulses = re.search('\d+pulse', filename).group(0)
 
-    return AliPeaks(dfp, p_gas, t_on, date, other_meta)
+        da = re.search('/\d+_', path).group(0).replace('/', '').replace('_', '')
+        date = re.sub('(\d{2})(\d{2})(\d{4})', r"\1.\2.\3", da, flags=re.DOTALL)
+
+        other_meta = filename.replace(p_gas, '').replace(t_on, '').replace(da+'_', '').replace(AimPulses, '').replace('.pyk', '')
+    except AttributeError:
+        pass
+
+    return AliPeaks(dfp, p_gas, t_on, date, AimPulses, other_meta)

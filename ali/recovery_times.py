@@ -196,6 +196,135 @@ def split_wet_dry(dfp : pd.DataFrame, nsigma : float = 1., DEBUG : bool = False)
     dryPulses = pd.concat((dfp.iloc[:,p] for p in dryId), axis=1)
     return wetPulses, dryPulses
 
+###### Refined spliting wet and dry pulses with autothreshold and SVM
+
+def autothreshold_maxP(maxP: pd.Series, ax = None, lb: str = '__nolabel__') -> float:
+    """Get the pressure threshold level dividing between dry and wet pulses maximum pressure"""
+    if ax == None: ax = plt.gca()
+
+    n, bins, _ = ax.hist(maxP, bins=10, label = lb)
+    ax.set_xlabel('$p_{max}$ [mbar]')
+
+    zeros = np.where(n == 0)[0]
+    if (len(zeros) > 1) and (zeros[1:] == zeros[:-1]+1).any():
+
+        binsc = 0.5*(bins[1:] + bins[:-1])
+        threshold = np.average(binsc[n == 0])
+        ax.axvline(x=threshold, color='r', linestyle='--')
+        ax.text(s='wet $\\rightarrow$', x=threshold, y=3, fontsize=12)
+        ax.text(s='$\\leftarrow$ dry', x=threshold, y=3, ha='right', fontsize=12)
+
+    else:
+        print('Undivided distribution')
+        threshold = 999
+
+    return threshold
+
+def wetdryID_split(dfp: pd.DataFrame, thres: float = None, ax = None, lb: str = '__nolabel__') -> tuple:
+    """Split pulses ID in wet and dry from hard threshold.
+    If undiv flag is true, the distribution is homogeneous and only one type of pulse was injected"""
+    maxP = plot_maxP(dfp)
+
+    if thres == None:
+        thres = autothreshold_maxP(maxP, ax = ax, lb = lb)
+
+    if thres != 999:
+        wetId = np.where(maxP.values >= thres)[0]
+        dryId = np.where(maxP.values < thres)[0]
+    else:
+        if np.average(maxP) > 0.5: # Empirical value of max pressure for dry pulses
+            wetId = maxP.index
+            dryId = []
+        else:
+            dryId = maxP.index
+            wetId = []
+
+    return wetId, dryId
+
+def wetDry_split(dfp: pd.DataFrame, thres: float = None, ax = None, lb: str = '__nolabel__') -> tuple:
+    """Split dfp in wet and dry from wetID and dryID"""
+
+    wetId, dryId = wetdryID_split(dfp, thres, ax)
+    wetPulses, dryPulses = pd.DataFrame(), pd.DataFrame()
+
+    try:
+        wetPulses = pd.concat((dfp.iloc[:,p] for p in wetId), axis=1)
+        dryPulses = pd.concat((dfp.iloc[:,p] for p in dryId), axis=1)
+
+    except ValueError:
+        if wetId == []:
+            print('All pulses are dry')
+        elif dryId == []:
+            print('All pulses are wet')
+
+    return wetPulses, dryPulses
+
+def svm_plot(maxP: pd.Series, targ: np.array, model):
+
+    xx, yy = make_meshgrid(maxP.index, maxP.values)
+    ax = plt.gca()
+    plot_contours(ax, model, xx, yy, cmap=plt.cm.coolwarm, alpha=0.8)
+    ax.scatter(maxP.index, maxP.values, c=targ, cmap=plt.cm.coolwarm, s=20, edgecolors='k')
+    ax.set_xlim(xx.min(), xx.max())
+    ax.set_ylim(yy.min(), yy.max())
+
+def svm_fitNplot(dfp: pd.DataFrame, thres: float = None, model: str= 'linear'):
+    """Produce Data and Target from hard wetDry_split, fit SVM and return model"""
+    from sklearn import svm
+    maxP = plot_maxP(dfp)
+    targ = np.zeros_like(maxP)
+
+    wetI, dryI = wetdryID_split(dfp, thres)
+    targ[wetI] = 1
+
+    data = np.matrix([maxP.index, maxP.values]).T
+
+    C = 1.0
+    model = svm.SVC(kernel=model, C=C)
+    model = model.fit(data, targ)
+
+    svm_plot(maxP, targ, model)
+    return model
+
+
+def make_meshgrid(x, y, h=.02):
+    """Create a mesh of points to plot in
+
+    Parameters
+    ----------
+    x: data to base x-axis meshgrid on
+    y: data to base y-axis meshgrid on
+    h: stepsize for meshgrid, optional
+
+    Returns
+    -------
+    xx, yy : ndarray
+    """
+    x_min, x_max = x.min() - 1, x.max() + 1
+    y_min, y_max = y.min() - 1, y.max() + 1
+    xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
+                         np.arange(y_min, y_max, h))
+    return xx, yy
+
+
+def plot_contours(ax, clf, xx, yy, **params):
+    """Plot the decision boundaries for a classifier.
+
+    Parameters
+    ----------
+    ax: matplotlib axes object
+    clf: a classifier
+    xx: meshgrid ndarray
+    yy: meshgrid ndarray
+    params: dictionary of params to pass to contourf, optional
+    """
+    Z = clf.predict(np.c_[xx.ravel(), yy.ravel()])
+    Z = Z.reshape(xx.shape)
+    out = ax.contourf(xx, yy, Z, **params)
+    return out
+
+######## Volume, N, mass table ##########
+
 def table_vnm_pulses(Ntot : int, Nwet : int,
                      C : float, M_ba : float, Vload : float = 0):
     """
