@@ -337,22 +337,24 @@ class DyeSample:
 
 @dataclass
 class CCD:
-    name             : str = "C9100-23B"
-    n_pixels         : ()  = (512, 512)
-    size_pixels      : ()  = (16 * micron, 16 * micron)
-    effective_area   : ()  = (8.19 * mm, 8.19 * mm)
-    linear_full_well : ()  = (3.7E+5, 1.5E+5) # electrons
-    pixel_clock_rate : ()  = (22 * MHZ, 11 * MHZ, 0.6875 * MHZ)
-    dark_current     : float  = 0.005 # electron/pixel/s
-    readout_noise    : float  = 8 # electron
-    readout_speed    : float  = 72 # frames/s
+    name             : str = "C13440-20CU"
+    n_pixels         : ()  = (2048, 2048)
+    size_pixels      : ()  = (6.5 * micron, 6.5 * micron)
+    effective_area   : ()  = (13.312 * mm, 13.312 * mm)
+    linear_full_well : ()  = (3.0E+5, 1.5E+5) # electrons
+    pixel_clock_rate : ()  = (85 * MHZ, 11 * MHZ, 0.6875 * MHZ)
+    dark_current     : float  = 0.06 # electron/pixel/s
+    readout_noise    : float  = 1.0 # electron
+    readout_speed    : float  = 100 # frames/s
+    k                : float  = 0.48 # electron/count
+
 
     def pixels (self)->float:
         return self.n_pixels[0] * self.n_pixels[1]
 
     def efficiency(self, lamda : np.array)->np.array:
-        xp = np.array([300,350,400,450,500,550,600,650,700,750,800,850,900,950,1000])
-        fp = np.array([0.1,0.2,0.55,0.8,0.92,0.98,0.98,0.92,0.9,0.8,0.7,0.55,0.4,0.2,0.1])
+        xp = np.array([400,450,500,550,600,650,700,750,800,850,900,950,1000])
+        fp = np.array([0.4,0.65,0.78,0.82,0.82,0.8,0.72,0.62,0.5,0.37,0.24,0.12,0.07])
         return np.interp(lamda/nm, xp, fp)
 
 
