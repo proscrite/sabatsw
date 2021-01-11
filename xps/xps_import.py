@@ -10,12 +10,13 @@ from dataclasses import dataclass
 
 def find_groups(path : str):
     """Utility to find number of groups contained in file"""
-    groupCount = 0
+    groups = []
     with open(path) as infile:
         for i,line in enumerate(infile):
             if '# Group:' in line :
-                groupCount += 1
-    return groupCount
+                groups.append(line[21:-1])
+
+    return groups
 
 def xy_region_delimiters(path: str) -> tuple:
     """Retrieve position, name and number of lines of each spectrum in a .xy file"""
@@ -31,28 +32,80 @@ def xy_region_delimiters(path: str) -> tuple:
             if '# Region:' in line:
                 names.append(line[21:-1].replace(' ', '_'))
             if '# Values/Curve:' in line:
-                nrows0.append(int(line[21:-1]))
+                if len(nrows0) == len(names)-1:
+                    nrows0.append(int(line[21:-1]))
     return (skipRows0, nrows0, names)
 
-def import_xps_df(path: str) -> pd.DataFrame:
-    """Join all spectra in an xps .xy file, each region contains a column with energy [in eV] and count values"""
+def xy_group_delimiters(path: str) -> tuple:
+    """Retrieve position, name and number of lines of each spectrum in a .xy file"""
 
-    skipRows0, nrows0, names = xy_region_delimiters(path) # there are len(skipRows0) - 1 regions in the file
+    skipRows0 = []
+    nrows0 = []
+    regions = []
+    group_meta = []
+    group_names = []
+    with open(path) as infile:
+        for i,line in enumerate(infile):
+            if '# ColumnLabels: energy' in line:
+                skipRows0.append(i)
+            if '# Region:' in line:
+                regions.append(line[21:-1].replace(' ', '_'))
+            if '# Values/Curve:' in line:
+                if len(nrows0) == len(regions)-1:
+                    nrows0.append(int(line[21:-1]))
+            if '# Group:' in line :
+                name = line[21:-1]
+                group_meta.append((skipRows0, nrows0, regions))
+                skipRows0, nrows0, regions = [], [], []
+                group_names.append(name)
 
+    group_meta.append((skipRows0, nrows0, regions))      # The Group name appears at the beginning
+                                                   # so the last bunch of skipr, nrows, regions needs to be appended here
+
+    group_meta = group_meta[1:]        # Also, the first entry contains empty lists, drop it
+    return group_meta, group_names
+
+def import_single_df(path, skipRows0, nrows0, regions):
+    """Concatenate regions of an experiment group in a dfx"""
     frames = []
+
     for j, re in enumerate(skipRows0):
         if j < len(skipRows0):
-            frames.append(pd.read_table(path, sep='\s+', skiprows=re+2, nrows = nrows0[j], header=None, names=[names[j], 'counts'],
-                                        decimal='.', encoding='ascii', engine='python'))
+            frames.append(pd.read_table(path, sep='\s+', skiprows=re+2, nrows = nrows0[j], header=None, names=[regions[j], 'counts'],
+                                            decimal='.', encoding='ascii', engine='python'))
 
     dfx = pd.concat(frames, axis=1)
 
     index2 = np.array(['energy', 'counts'])
-    mi = pd.MultiIndex.from_product([names, index2], names=['range', 'properties'])
+    mi = pd.MultiIndex.from_product([regions, index2], names=['range', 'properties'])
     mi.to_frame()
     dfx.columns = mi
 
     return dfx
+
+def import_xps_df(path: str) -> pd.DataFrame:
+    """Join all spectra in an xps .xy file, each region contains a column with energy [in eV] and count values"""
+
+    skipRows0, nrows0, regions = xy_region_delimiters(path) # there are len(skipRows0) - 1 regions in the file
+    dfx = import_single_df(path, skipRows0, nrows0, regions)
+    return dfx
+
+def import_group_xp(path):
+    """Separate groups in a xy file into several XPS_experiments"""
+    group_meta, gr_names = xy_group_delimiters(path)
+
+    experiments = []
+
+    for i, (delimiters, n) in enumerate(zip(group_meta, gr_names)):
+        skipRows0, nrows0, regions = delimiters[:]
+
+        dfx = import_single_df(path, skipRows0, nrows0, regions)
+
+        xp = XPS_experiment(name = n, path = path, dfx = dfx,
+                            delimiters = delimiters)
+        experiments.append(xp)
+    return experiments
+
 
 def excitation_energy_metadata(path : str , name : str):
         """Find the excitation energy for a region in XPS '.xy' file
@@ -121,6 +174,8 @@ class XPS_experiment:
         dictionary with name of regions and integrated areas
     color: str
         color for plotting (property not stored)
+    ls: str
+        linestyle (solid, dashed...)
     """
     path : str = None
     delimiters : tuple = None
@@ -130,10 +185,13 @@ class XPS_experiment:
     other_meta : str = None
     dfx : pd.DataFrame = None
     area : dict = None
+    fit : dict = None
     color : str = None
+    ls : str = None
 
 def xps_data_import(path : str, name : str = None, label : str = None, color: str = None) -> XPS_experiment:
     """Method to arrange a XPS_experiment data"""
+    import re
     dfx = import_xps_df(path)
     delimiters = xy_region_delimiters(path)
 
@@ -144,8 +202,12 @@ def xps_data_import(path : str, name : str = None, label : str = None, color: st
     relpath, filename = os.path.split(path)
     dir_name = os.path.split(relpath)[1]
     da = re.search('\d+_', filename).group(0).replace('/', '').replace('_', '')
-    date = re.sub('(\d{4})(\d{2})(\d{2})', r"\1.\2.\3", da, flags=re.DOTALL)
-    other_meta = dir_name + filename.replace(da, '')
+    if da[:4] != '2020':
+        date = re.sub('(\d{2})(\d{2})(\d{4})', r"\1.\2.\3", da, flags=re.DOTALL)
+    else:
+        date = re.sub('(\d{4})(\d{2})(\d{2})', r"\1.\2.\3", da, flags=re.DOTALL)
+
+    other_meta = filename.replace(da, '')[1:].strip('.xy')
     if name == None: name = other_meta
     if label == None: label = da+'_'+other_meta
 
@@ -160,17 +222,19 @@ def write_processed_xp(filepath : str, xp : XPS_experiment):
     with open(filepath, 'w') as fout:
         writer = csv.writer(fout, delimiter='=')
         for att in xp.__dict__.keys():   # Loop over class attributes except dfx (last)
-            if (att != 'dfx'):
+            if (att != 'dfx') and (att != 'ls'):
                 writer.writerow([att, getattr(xp, att)])
         writer.writerow(['dfx', ''])
         xp.dfx.to_csv(fout, sep=',')
 
 def read_dict_area(line : str):
-    """Read area dictionary from processed XPS file"""
+    """Read area/fit dictionary from processed XPS file"""
     line_area = line.split('=')[1].split(', ')
-    line_area[0] = line_area[0][1:]
-    line_area[-1] = line_area[-1][:-2]
-    area = dict((key.replace("'", ''), float(val)) for key, val in [word.split(':') for word in line_area])
+    try:
+        line_area[0] = line_area[0][1:]   # Remove '{}'
+        line_area[-1] = line_area[-1][:-2] # Remove '}\n'
+        area = dict((key.replace("'", ''), float(val)) for key, val in [word.split(':') for word in line_area])
+    except ValueError: area = {}  # ValueError raises if the dict is empty
     return area
 
 def read_processed_dfx(path : str, names : list, skiprows0 : int = 9) -> pd.DataFrame:
@@ -183,12 +247,13 @@ def read_processed_dfx(path : str, names : list, skiprows0 : int = 9) -> pd.Data
     dfx.index.name=None
     return dfx
 
-def read_processed_xp(path: str, color: str = None) -> XPS_experiment:
-    """Read XPS_experiment class from file"""
+def read_processed_xp(path: str, color: str = None, ls: str = None) -> XPS_experiment:
+    """Read XPS_experiment class from file
+       If old head format is detected, correct it automatically"""
     from itertools import islice
 
     with open(path) as fin:
-        head = list(islice(fin, 10))
+        head = list(islice(fin, 11))
 
         delimiters = head[1].split('=')[1][:-1]
         name = head[2].split('=')[1][:-1]
@@ -196,16 +261,47 @@ def read_processed_xp(path: str, color: str = None) -> XPS_experiment:
         date = head[4].split('=')[1][:-1]
         other_meta = head[5].split('=')[1][:-1]
 
-        lindex = 9
-        if len(head[6]) > 6:
+        try:
+            assert ('area' in head[6]) and ('fit' in head[7]), 'Old head format'
             area = read_dict_area(head[6])
-            color = head[7].split('=')[1][:-1]
-        else: area = None
-        names = head[lindex].split(',')[1:-1:2]
-        dfx = read_processed_dfx(path, names, lindex+3)
+            fit = read_dict_area(head[7])
+            color = head[8].split('=')[1][:-1]
+            if color == '': color = None
 
-    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name, color = color,
-                                  label = label, date = date, other_meta = other_meta, area = area)
+            names = head[10].split(',')[1:-1:2]
+            dfx = read_processed_dfx(path, names, skiprows0=12)
+
+        except AssertionError as e:      # Process old head format and raise flag to write corrected file
+            print(e)
+            correct_processed_head(path)
+
+    return XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name, color = color, ls = ls,
+                        label = label, date = date, other_meta = other_meta, area = area, fit = fit)
+                        
+
+def correct_processed_head(path: str):
+    """If old head format is detected, process file accordingly and correct the file"""
+    from itertools import islice
+
+    with open(path) as fin:
+        head = list(islice(fin, 11))
+
+        delimiters = head[1].split('=')[1][:-1]
+        name = head[2].split('=')[1][:-1]
+        label = head[3].split('=')[1][:-1]
+        date = head[4].split('=')[1][:-1]
+        other_meta = head[5].split('=')[1][:-1]
+        ### Up to here proceed as with new format (same as in read_processed_xp)
+
+        lindex = np.where(np.array(head) == 'dfx=\n')[0][0] + 1
+        area, fit = {}, {}
+        names = head[lindex].split(',')[1:-1:2]
+        dfx = read_processed_dfx(path, names, skiprows0=lindex+2)
+
+    xp = XPS_experiment(path = path, dfx = dfx, delimiters = delimiters, name = name, color = color, ls = ls,
+                        label = label, date = date, other_meta = other_meta, area = area, fit = fit)
+    write_processed_xp(path, xp)
+
 
 def itx_import(path : str, name: str, label: str) -> XPS_experiment:
     with open(path) as fin:
@@ -248,6 +344,14 @@ def itx_import(path : str, name: str, label: str) -> XPS_experiment:
     dfx.index.name=None
 
     return XPS_experiment(path = path, dfx = dfx, name= name, label=label)
+
+def export_csv(file: str, xp: XPS_experiment):
+    """Export to Igor compatible csv format"""
+    with open(file, 'w') as fout:
+        regions = xp.dfx.columns.levels[0].values
+        header = ''.join('%s_BE\t%s_cps\t' %(r, r) for r in regions)
+        fout.write(header+'\n')
+        xp.dfx.to_csv(fout, sep='\t', na_rep='NaN', index=None, header=False)
 
 def pickle_xp(file : str, xp : XPS_experiment):
     import pickle

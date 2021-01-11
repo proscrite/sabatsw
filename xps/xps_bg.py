@@ -387,6 +387,7 @@ class XPBackground(object):
         y = xp.dfx[region].dropna().counts.values
         return x, y
 
+    @staticmethod
     def edit_xp(self, xp, region, x, y, ybg, ax = None):
         if ax == None: ax = plt.gca()
         col = plot_region(xp, region, lb=region, ax=ax).get_color()
@@ -442,6 +443,9 @@ def bulk_bg_subtract(experiments : list, regions : list) -> list:
             except AssertionError:
                 print('Max iterations exceeded, subtract ALS baseline')
                 xp_r = subtract_als_bg(xp, r, lb=xp.label, ax = ax[i][0])
+            except KeyError as e:
+                print('KeyError on ', e)
+                continue
             plot_region(xp_r, r, ax=ax[i][1])
             ax[i][0].set_title(r)
             ax[i][1].set_title('Subtraction result')
